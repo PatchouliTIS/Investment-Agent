@@ -1,0 +1,58 @@
+# Investment Agent 配置文件
+# 复制此文件为 config.yaml 并填入你的实际配置
+
+watchlist:
+  a_shares:
+    - "600519"    # 贵州茅台
+    - "000858"    # 五粮液
+    - "601318"    # 中国平安
+    - "300750"    # 宁德时代
+  funds:
+    - "110011"    # 易方达中小盘
+    - "510300"    # 沪深300ETF
+    - "159915"    # 创业板ETF
+  hk_stocks:
+    - "00700"     # 腾讯控股
+  us_stocks:
+    - "AAPL"      # Apple
+    - "MSFT"      # Microsoft
+
+llm:
+  provider: "openai"              # openai | anthropic | ollama
+  model: "gpt-4o-mini"           # 日常分析用低成本模型
+  api_key: "${OPENAI_API_KEY}"
+  base_url: null
+  temperature: 0.3
+  max_tokens: 4096
+
+# 深度分析用更强模型 (可选)
+llm_deep:
+  provider: "anthropic"
+  model: "claude-sonnet-4-20250514"
+  api_key: "${ANTHROPIC_API_KEY}"
+  base_url: null
+  temperature: 0.2
+  max_tokens: 8192
+
+email:
+  smtp_host: "smtp.qq.com"
+  smtp_port: 465
+  use_ssl: true
+  sender: "your_email@qq.com"
+  password: "${EMAIL_SMTP_PASSWORD}"
+  recipients:
+    - "your_email@qq.com"
+
+schedule:
+  data_sync_cron: "0 18 * * 1-5"       # 周一至周五 18:00 收盘后同步
+  daily_report_cron: "30 19 * * 1-5"    # 周一至周五 19:30 发送日报
+  weekly_report_cron: "0 10 * * 6"      # 周六 10:00 发送周报
+
+alerts:
+  price_change_threshold: 5.0           # 涨跌幅超过5%触发告警
+  volume_spike_threshold: 3.0           # 成交量超过20日均量3倍触发
+
+database:
+  path: "data/investment.db"
+
+log_level: "INFO"

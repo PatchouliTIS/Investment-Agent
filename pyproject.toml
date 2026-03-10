@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "investment-agent"
+version = "0.1.0"
+description = "Personal investment decision support agent"
+requires-python = ">=3.10"
+dependencies = [
+    "akshare>=1.14.0",
+    "pandas>=2.0.0",
+    "litellm>=1.40.0",
+    "sqlalchemy>=2.0.0",
+    "apscheduler>=3.10.0,<4.0.0",
+    "jinja2>=3.1.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "chinese-calendar>=1.9.0",
+    "loguru>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+invest = "src.main:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that call external APIs (deselect with '-m \"not integration\"')",
+]

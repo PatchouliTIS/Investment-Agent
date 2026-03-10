@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, 'Microsoft YaHei', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+  .container { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .header { background: linear-gradient(135deg, #e53935, #b71c1c); color: #fff; padding: 20px; }
+  .header h1 { margin: 0; font-size: 20px; }
+  .header .date { opacity: 0.8; margin-top: 4px; font-size: 13px; }
+  .content { padding: 20px; }
+  .alert-item { border-left: 4px solid #e53935; padding: 12px; margin-bottom: 12px; background: #fff5f5; border-radius: 0 6px 6px 0; }
+  .alert-item h3 { margin: 0 0 4px 0; font-size: 15px; }
+  .alert-item .detail { color: #666; font-size: 13px; }
+  .footer { padding: 12px 20px; text-align: center; color: #999; font-size: 12px; border-top: 1px solid #eee; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>⚠️ 投资告警</h1>
+    <div class="date">{{ report.date }}</div>
+  </div>
+  <div class="content">
+    {% if report.alerts %}
+    {% for alert in report.alerts %}
+    <div class="alert-item">
+      <h3>{{ alert.symbol }} - {{ alert.alert_type }}</h3>
+      <div class="detail">{{ alert.message }}</div>
+      {% if alert.current_value %}
+      <div class="detail" style="margin-top:4px;">当前值: {{ alert.current_value }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="text-align:center;color:#999;">无告警信息</p>
+    {% endif %}
+  </div>
+  <div class="footer">
+    Investment Agent - 异常监控告警
+  </div>
+</div>
+</body>
+</html>

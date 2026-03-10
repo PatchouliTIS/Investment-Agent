@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, 'Microsoft YaHei', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+  .container { max-width: 800px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: #fff; padding: 24px; }
+  .header h1 { margin: 0; font-size: 22px; }
+  .header .date { opacity: 0.8; margin-top: 4px; font-size: 14px; }
+  .section { padding: 20px 24px; border-bottom: 1px solid #eee; }
+  .section h2 { color: #1a73e8; font-size: 18px; margin-top: 0; }
+  .stock-card { background: #fafafa; border-radius: 6px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #ddd; }
+  .stock-card.bullish { border-left-color: #e53935; }
+  .stock-card.neutral { border-left-color: #fb8c00; }
+  .stock-card.bearish { border-left-color: #43a047; }
+  .stock-card h3 { margin: 0 0 8px 0; font-size: 16px; }
+  .rating { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #fff; }
+  .rating.bullish { background: #e53935; }
+  .rating.neutral { background: #fb8c00; }
+  .rating.bearish { background: #43a047; }
+  .confidence { color: #666; font-size: 12px; margin-left: 8px; }
+  .analyst-tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; }
+  .summary { color: #333; line-height: 1.6; margin: 8px 0; }
+  .portfolio-box { background: #fff3e0; border-radius: 6px; padding: 16px; }
+  .footer { padding: 16px 24px; text-align: center; color: #999; font-size: 12px; }
+  .risk-tag { display: inline-block; background: #ffebee; color: #c62828; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin: 2px; }
+  .catalyst-tag { display: inline-block; background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin: 2px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>📊 投资日报</h1>
+    <div class="date">{{ report.date }}</div>
+  </div>
+
+  {% if report.individual %}
+  <div class="section">
+    <h2>个股分析</h2>
+    {% for symbol, data in report.individual.items() %}
+    <div class="stock-card {{ data.analyses.values() | map(attribute='rating') | first | default('neutral') }}">
+      <h3>{{ symbol }} <span style="color:#666;font-size:13px;">({{ data.market }})</span></h3>
+      {% for analyst_name, analysis in data.analyses.items() %}
+      <div style="margin-bottom: 8px;">
+        <span class="analyst-tag">{{ analyst_name }}</span>
+        <span class="rating {{ analysis.rating }}">
+          {% if analysis.rating == 'bullish' %}看多
+          {% elif analysis.rating == 'bearish' %}看空
+          {% else %}中性{% endif %}
+        </span>
+        <span class="confidence">置信度: {{ "%.0f" | format(analysis.confidence * 100) }}%</span>
+        <div class="summary">{{ analysis.summary }}</div>
+        {% if analysis.details.risks %}
+        <div>
+          {% for risk in analysis.details.risks %}
+          <span class="risk-tag">⚠ {{ risk }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if analysis.details.catalysts %}
+        <div>
+          {% for cat in analysis.details.catalysts %}
+          <span class="catalyst-tag">✦ {{ cat }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if report.portfolio %}
+  <div class="section">
+    <h2>组合建议</h2>
+    <div class="portfolio-box">
+      <p class="summary">{{ report.portfolio.summary | default('暂无组合建议') }}</p>
+      {% if report.portfolio.risk_level %}
+      <p><strong>风险等级:</strong> {{ report.portfolio.risk_level }}</p>
+      {% endif %}
+      {% if report.portfolio.allocation_suggestions %}
+      <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+        <tr style="background:#f5f5f5;">
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;">标的</th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;">操作</th>
+          <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd;">理由</th>
+        </tr>
+        {% for item in report.portfolio.allocation_suggestions %}
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.symbol }}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.action }}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.reason | default('') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+      {% if report.portfolio.monthly_investment_plan %}
+      <p style="margin-top:12px;"><strong>定投建议:</strong> {{ report.portfolio.monthly_investment_plan }}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    <p>Investment Agent - 仅供参考，不构成投资建议</p>
+    <p>数据来源: AKShare | AI分析仅供决策参考</p>
+  </div>
+</div>
+</body>
+</html>
