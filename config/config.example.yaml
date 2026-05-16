@@ -3,34 +3,37 @@
 
 watchlist:
   a_shares:
-    - "600519"    # 贵州茅台
-    - "000858"    # 五粮液
-    - "601318"    # 中国平安
-    - "300750"    # 宁德时代
+    # 主线一：AI算力 (40%)
+    - "688256"    # 寒武纪 - AI芯片国产替代龙头
+    - "002475"    # 立讯精密 - AI服务器代工核心
+    - "688012"    # 中微公司 - 刻蚀设备国产龙头
+    # 主线二：半导体设备 (30%)
+    - "688981"    # 中芯国际 - 晶圆代工国内龙一
+    - "002371"    # 北方华创 - 半导体设备平台龙头
+    - "603501"    # 韦尔股份 - CIS图像传感器龙头
+    # 主线三：新能源龙头 (30%)
+    - "300750"    # 宁德时代 - 动力电池全球龙一
+    - "002594"    # 比亚迪 - 整车+电池一体化
+    - "300274"    # 阳光电源 - 储能核心增长引擎
   funds:
-    - "110011"    # 易方达中小盘
-    - "510300"    # 沪深300ETF
-    - "159915"    # 创业板ETF
-  hk_stocks:
-    - "00700"     # 腾讯控股
-  us_stocks:
-    - "AAPL"      # Apple
-    - "MSFT"      # Microsoft
+    - "159819"    # 人工智能ETF
+    - "512480"    # 半导体ETF
+    - "515030"    # 新能源车ETF
+  hk_stocks: []
+  us_stocks: []
 
 llm:
-  provider: "openai"              # openai | anthropic | ollama
-  model: "gpt-4o-mini"           # 日常分析用低成本模型
-  api_key: "${OPENAI_API_KEY}"
-  base_url: null
+  model: "claude-opus-4-6"           # 日常分析模型
+  api_key: "${AICODING_API_KEY}"     # 存储在 .env 中
+  base_url: "https://api.aicoding.sh/v1/messages"
   temperature: 0.3
   max_tokens: 4096
 
-# 深度分析用更强模型 (可选)
+# 深度分析用更强模型 (可选，使用同一API)
 llm_deep:
-  provider: "anthropic"
-  model: "claude-sonnet-4-20250514"
-  api_key: "${ANTHROPIC_API_KEY}"
-  base_url: null
+  model: "claude-opus-4-6"
+  api_key: "${AICODING_API_KEY}"
+  base_url: "https://api.aicoding.sh/v1/messages"
   temperature: 0.2
   max_tokens: 8192
 
@@ -49,8 +52,9 @@ schedule:
   weekly_report_cron: "0 10 * * 6"      # 周六 10:00 发送周报
 
 alerts:
-  price_change_threshold: 5.0           # 涨跌幅超过5%触发告警
+  price_change_threshold: 5.0           # 单日涨跌幅超过5%触发告警
   volume_spike_threshold: 3.0           # 成交量超过20日均量3倍触发
+  stop_loss_threshold: -15.0            # 止损线：累计跌幅超-15%触发
 
 database:
   path: "data/investment.db"

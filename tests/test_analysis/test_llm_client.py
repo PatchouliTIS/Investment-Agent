@@ -24,19 +24,13 @@ def test_parse_json_invalid():
     assert "not json at all" in result["raw_response"]
 
 
-def test_model_string_openai():
-    """Test model string construction for OpenAI."""
-    client = LLMClient(LLMConfig(provider="openai", model="gpt-4o-mini"))
-    assert client.model == "gpt-4o-mini"
-
-
-def test_model_string_anthropic():
-    """Test model string construction for Anthropic."""
-    client = LLMClient(LLMConfig(provider="anthropic", model="claude-sonnet-4-20250514"))
-    assert client.model == "anthropic/claude-sonnet-4-20250514"
-
-
-def test_model_string_ollama():
-    """Test model string construction for Ollama."""
-    client = LLMClient(LLMConfig(provider="ollama", model="qwen2.5"))
-    assert client.model == "ollama/qwen2.5"
+def test_client_init():
+    """Test client initializes with correct URL and headers."""
+    config = LLMConfig(
+        model="claude-opus-4-6",
+        api_key="aicoding-test-key",
+        base_url="https://api.aicoding.sh/v1/messages",
+    )
+    client = LLMClient(config)
+    assert client.url == "https://api.aicoding.sh/v1/messages"
+    assert client.headers["Authorization"] == "aicoding-test-key"
