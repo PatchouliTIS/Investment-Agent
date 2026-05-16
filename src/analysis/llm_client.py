@@ -1,4 +1,4 @@
-"""Unified LLM client via litellm for multi-provider support."""
+"""LLM client using api.aicoding.sh Messages API."""
 
 from __future__ import annotations
 
@@ -8,14 +8,7 @@ import time
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from litellm import (
-    APIConnectionError,
-    InternalServerError,
-    RateLimitError,
-    ServiceUnavailableError,
-    Timeout,
-    completion,
-)
+import requests
 from loguru import logger
 
 from src.analysis.llm_cache import LLMCache
@@ -31,18 +24,15 @@ RETRYABLE_LLM_ERRORS = (
 
 
 class LLMClient:
-    """Thin wrapper around litellm providing consistent multi-model access."""
+    """Calls the Messages API at api.aicoding.sh."""
 
     def __init__(self, config: LLMConfig, cache: LLMCache | None = None):
         self.config = config
-        self.cache = cache
-        # Build the model string litellm expects
-        if config.provider == "ollama":
-            self.model = f"ollama/{config.model}"
-        elif config.provider == "anthropic":
-            self.model = f"anthropic/{config.model}"
-        else:
-            self.model = config.model  # OpenAI models don't need prefix
+        self.url = config.base_url
+        self.headers = {
+            "Authorization": config.api_key,
+            "Content-Type": "application/json",
+        }
 
     def chat(
         self,
@@ -51,125 +41,19 @@ class LLMClient:
         request_context: str = "unspecified",
     ) -> str:
         """Single-turn chat completion."""
-        request_id = uuid4().hex[:12]
-        endpoint = self._endpoint_label()
-        max_attempts = self.config.max_retries + 1
-        started_at = time.monotonic()
-        kwargs = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            "temperature": self.config.temperature,
+        payload = {
+            "model": self.config.model,
             "max_tokens": self.config.max_tokens,
-            "timeout": self.config.timeout_seconds,
+            "temperature": self.config.temperature,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_message}],
+            "stream": False,
         }
-        if self.config.api_key:
-            kwargs["api_key"] = self.config.api_key
-        if self.config.base_url:
-            kwargs["api_base"] = self.config.base_url
 
-        # Hash only response-affecting fields; credentials and endpoint stay out.
-        cache_key = None
-        if self.cache is not None and self.cache.enabled:
-            cache_key = LLMCache.build_key(
-                self.model,
-                {
-                    "system_prompt": system_prompt,
-                    "user_message": user_message,
-                    "temperature": self.config.temperature,
-                    "max_tokens": self.config.max_tokens,
-                },
-            )
-            cached = self.cache.get(cache_key, request_context)
-            if cached is not None:
-                return cached
-
-        for attempt in range(self.config.max_retries + 1):
-            attempt_number = attempt + 1
-            attempt_started_at = time.monotonic()
-            try:
-                response = completion(**kwargs)
-                content = response.choices[0].message.content
-                logger.debug(
-                    f"LLM request completed request_id={request_id} context={request_context} "
-                    f"provider={self.config.provider} endpoint={endpoint} model={self.model} "
-                    f"attempt={attempt_number}/{max_attempts} "
-                    f"elapsed_seconds={time.monotonic() - started_at:.2f} "
-                    f"response_chars={len(content)}"
-                )
-                if cache_key is not None and content:
-                    self.cache.put(
-                        cache_key,
-                        content,
-                        request_context=request_context,
-                        llm_model=self.model,
-                        prompt_chars=len(system_prompt) + len(user_message),
-                    )
-                return content
-            except RETRYABLE_LLM_ERRORS as error:
-                error_details = self._error_details(error)
-                attempt_elapsed = time.monotonic() - attempt_started_at
-                if attempt == self.config.max_retries:
-                    logger.error(
-                        f"LLM request failed request_id={request_id} context={request_context} "
-                        f"provider={self.config.provider} endpoint={endpoint} model={self.model} "
-                        f"attempt={attempt_number}/{max_attempts} "
-                        f"attempt_elapsed_seconds={attempt_elapsed:.2f} "
-                        f"total_elapsed_seconds={time.monotonic() - started_at:.2f} "
-                        f"error_type={type(error).__name__} {error_details}"
-                    )
-                    raise
-                delay = self.config.retry_delay_seconds * (2**attempt)
-                logger.warning(
-                    f"LLM request retrying request_id={request_id} context={request_context} "
-                    f"provider={self.config.provider} endpoint={endpoint} model={self.model} "
-                    f"attempt={attempt_number}/{max_attempts} "
-                    f"attempt_elapsed_seconds={attempt_elapsed:.2f} "
-                    f"error_type={type(error).__name__} {error_details} "
-                    f"retry_delay_seconds={delay:.1f}"
-                )
-                time.sleep(delay)
-            except Exception as error:
-                logger.error(
-                    f"LLM request rejected request_id={request_id} context={request_context} "
-                    f"provider={self.config.provider} endpoint={endpoint} model={self.model} "
-                    f"attempt={attempt_number}/{max_attempts} "
-                    f"attempt_elapsed_seconds={time.monotonic() - attempt_started_at:.2f} "
-                    f"error_type={type(error).__name__} {self._error_details(error)}"
-                )
-                raise
-
-        raise RuntimeError("LLM request exhausted without a response")
-
-    def chat_json(
-        self,
-        system_prompt: str,
-        user_message: str,
-        request_context: str = "unspecified",
-    ) -> dict:
-        """Return a report-compatible structured or text analysis payload."""
-        if self.config.output_format == "text":
-            text_prompt = re.sub(
-                r"\n请用JSON格式返回[\s\S]*$",
-                "",
-                system_prompt,
-            )
-            raw = self.chat(
-                text_prompt
-                + "\n\n请直接使用自然语言返回完整分析结论，不要输出 JSON、代码块或格式说明。"
-                + f"全文不超过 {self.config.text_response_max_chars} 个汉字。",
-                user_message,
-                request_context=request_context,
-            )
-            return {
-                "summary": raw,
-                "rating": "neutral",
-                "confidence": 0.5,
-                "raw_response": raw,
-                "output_format": "text",
-            }
+        resp = requests.post(self.url, headers=self.headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"]
 
         raw = self.chat(
             system_prompt + "\n\n请只返回合法的JSON格式，不要包含其他文字。",
@@ -197,34 +81,11 @@ class LLMClient:
     def _parse_json(raw: str, request_context: str = "unspecified") -> dict:
         """Parse JSON from LLM response, handling markdown fences."""
         cleaned = raw.strip()
-        # Remove markdown code fences
         match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", cleaned, re.DOTALL)
         if match:
             cleaned = match.group(1).strip()
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            decoder = json.JSONDecoder()
-            for index, character in enumerate(cleaned):
-                if character != "{":
-                    continue
-                try:
-                    result, _ = decoder.raw_decode(cleaned[index:])
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(result, dict):
-                    logger.debug("Extracted JSON object from an LLM response with surrounding text")
-                    return result
-
-        preview = " ".join(raw.split())[:120]
-        logger.warning(
-            f"LLM JSON parse failed context={request_context} response_chars={len(raw)} "
-            f"response_preview={preview!r}"
-        )
-        return {
-            "summary": f"模型返回非 JSON 内容：{raw}",
-            "rating": "neutral",
-            "confidence": 0.0,
-            "raw_response": raw,
-            "parse_error": True,
-        }
+            logger.warning("Failed to parse LLM JSON response, returning raw text")
+            return {"raw_response": raw, "parse_error": True}

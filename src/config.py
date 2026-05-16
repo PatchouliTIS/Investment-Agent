@@ -19,10 +19,9 @@ class WatchlistConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    provider: str = "openai"
-    model: str = "gpt-4o-mini"
-    api_key: str | None = None
-    base_url: str | None = None
+    model: str = "claude-opus-4-6"
+    api_key: Optional[str] = None
+    base_url: str = "https://api.aicoding.sh/v1/messages"
     temperature: float = 0.3
     max_tokens: int = 4096
     output_format: Literal["json", "text"] = "json"
@@ -80,6 +79,7 @@ class ScheduleConfig(BaseModel):
 class AlertConfig(BaseModel):
     price_change_threshold: float = 5.0
     volume_spike_threshold: float = 3.0
+    stop_loss_threshold: float = -15.0
 
 
 class AkshareConfig(BaseModel):

@@ -27,7 +27,11 @@ def sample_config():
             hk_stocks=["00700"],
             us_stocks=["AAPL"],
         ),
-        llm=LLMConfig(provider="openai", model="gpt-4o-mini", api_key="test-key"),
+        llm=LLMConfig(
+            model="claude-opus-4-6",
+            api_key="aicoding-test-key",
+            base_url="https://api.aicoding.sh/v1/messages",
+        ),
         email=EmailConfig(
             smtp_host="smtp.qq.com",
             smtp_port=465,
@@ -54,12 +58,13 @@ def test_db():
 @pytest.fixture
 def mock_llm(mocker):
     """Mock LLM that returns predictable JSON responses."""
-    mock = mocker.patch("litellm.completion")
-    mock.return_value.choices = [
-        mocker.Mock(
-            message=mocker.Mock(
-                content='{"summary":"测试分析","rating":"neutral","confidence":0.5}'
-            )
-        )
-    ]
+    mock_resp = mocker.Mock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "content": [
+            {"type": "text", "text": '{"summary":"测试分析","rating":"neutral","confidence":0.5}'}
+        ]
+    }
+    mock_resp.raise_for_status = mocker.Mock()
+    mock = mocker.patch("requests.post", return_value=mock_resp)
     return mock
