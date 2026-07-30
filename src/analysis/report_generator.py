@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from datetime import date
-
 from loguru import logger
 
-from src.analysis.base_analyst import AnalysisResult
 from src.analysis.fundamental import FundamentalAnalyst
 from src.analysis.llm_client import LLMClient
 from src.analysis.portfolio import PortfolioAdvisor
@@ -16,6 +12,7 @@ from src.analysis.technical import TechnicalAnalyst
 from src.config import AppConfig
 from src.storage.database import Database
 from src.storage.queries import QueryService
+from src.utils.chinese_calendar import shanghai_today
 
 
 class ReportGenerator:
@@ -31,12 +28,12 @@ class ReportGenerator:
             TechnicalAnalyst(llm, db),
             SentimentAnalyst(llm, db),
         ]
-        self.portfolio_advisor = PortfolioAdvisor(llm)
+        self.portfolio_advisor = PortfolioAdvisor(llm, config.investor_profile)
 
     def generate_daily_brief(self) -> dict:
         """Generate a daily investment brief for all watchlist items."""
         logger.info("Generating daily brief...")
-        today = date.today().isoformat()
+        today = shanghai_today().isoformat()
         results_by_symbol = {}
         all_results = []
 
@@ -53,7 +50,7 @@ class ReportGenerator:
                         "details": result.details,
                     }
                     all_results.append(result)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Analyst {analyst.name} failed for {symbol}: {e}")
 
         # Analyze HK stocks (technical only, fundamentals may be limited)
@@ -69,7 +66,7 @@ class ReportGenerator:
                         "details": result.details,
                     }
                     all_results.append(result)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Analyst {analyst.name} failed for HK {symbol}: {e}")
 
         # Analyze US stocks
@@ -85,7 +82,7 @@ class ReportGenerator:
                         "details": result.details,
                     }
                     all_results.append(result)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"Analyst {analyst.name} failed for US {symbol}: {e}")
 
         # Portfolio-level advice

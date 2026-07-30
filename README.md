@@ -13,8 +13,8 @@ AI-powered personal investment decision support agent that periodically scrapes 
 | Layer | Tech | Purpose |
 |-------|------|---------|
 | Data | AKShare | A-shares, funds/ETFs, HK/US stocks, news |
-| Storage | SQLite + SQLAlchemy | 7 tables, upsert dedup |
-| AI | litellm (OpenAI / Claude / Ollama) | 4 analyst agents + portfolio advisor |
+| Storage | SQLite + SQLAlchemy | 8 tables, upsert dedup |
+| AI | litellm (OpenAI / Claude / Ollama) | 3 analyst agents + portfolio advisor |
 | Notify | SMTP + Jinja2 HTML | Daily brief, weekly deep, alerts |
 | Schedule | APScheduler 3.x | In-process cron jobs |
 
@@ -69,6 +69,7 @@ Edit `config/config.yaml` (copied from `config.example.yaml`):
 - **email** — SMTP settings (QQ Mail, Gmail, etc.)
 - **schedule** — cron expressions for data sync, daily/weekly reports
 - **alerts** — price change % and volume spike thresholds
+- **investor_profile** — optional income, available cash, fund assets, and risk preference for portfolio advice
 
 Sensitive values use `${ENV_VAR}` interpolation from `.env`.
 
@@ -88,13 +89,23 @@ Sensitive values use `${ENV_VAR}` interpolation from `.env`.
 | Data Sync | `0 18 * * 1-5` | Weekdays 18:00 after market close |
 | Daily Brief | `30 19 * * 1-5` | Weekdays 19:30 |
 | Weekly Deep | `0 10 * * 6` | Saturday 10:00 |
-| Alert Check | Every 30 min, 9:00–15:00 weekdays | Price/volume anomaly detection |
+| Alert Check | `30 18 * * 1-5` | End-of-day price/volume anomalies, deduplicated by symbol/rule/date |
+
+## Data Synchronization
+
+`sync` retrieves incremental data from AKShare and stores it locally. It covers:
+
+- A-share, Hong Kong, and U.S. daily quotes
+- Open-fund and ETF NAV history
+- A-share financial indicators, individual-stock fund flow, and company news
+
+Each symbol and enrichment task is isolated: a provider failure is logged without aborting the rest of the watchlist. The report and end-of-day alert commands use the persisted data, so run `sync` successfully before generating the first report.
 
 ## Development
 
 ```bash
 # Run tests
-python -m pytest tests/ -v
+python -m pytest tests/ -v  # Python 3.10+ with the dev dependencies installed
 
 # Lint
 ruff check src/ tests/

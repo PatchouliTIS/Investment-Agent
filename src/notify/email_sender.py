@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import smtplib
-from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -12,7 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
 from src.config import EmailConfig
-
+from src.utils.chinese_calendar import shanghai_today
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -38,7 +37,7 @@ class EmailSender:
             "weekly_deep": "投资周报",
             "alert": "投资告警",
         }
-        subject = f"{type_labels.get(report_type, '投资报告')} - {report.get('date', date.today())}"
+        subject = f"{type_labels.get(report_type, '投资报告')} - {report.get('date', shanghai_today())}"
 
         self._send_html(subject, html_content)
 
@@ -48,13 +47,13 @@ class EmailSender:
 
     def send_test(self):
         """Send a test email to verify SMTP configuration."""
-        html = """
+        html = f"""
         <html><body>
         <h2>Investment Agent - 邮件测试</h2>
         <p>如果你收到这封邮件，说明邮件配置正确。</p>
-        <p>发送时间: {}</p>
+        <p>发送时间: {shanghai_today()}</p>
         </body></html>
-        """.format(date.today())
+        """
         self._send_html("Investment Agent 邮件测试", html)
 
     def _send_html(self, subject: str, html_content: str):

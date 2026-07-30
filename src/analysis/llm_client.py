@@ -62,5 +62,5 @@ class LLMClient:
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse LLM JSON response, returning raw text")
+            logger.warning("Failed to parse LLM JSON response, returning raw text")
             return {"raw_response": raw, "parse_error": True}

@@ -1,6 +1,6 @@
 """Tests for configuration loading."""
 
-from src.config import AppConfig, WatchlistConfig, LLMConfig
+from src.config import AppConfig, LLMConfig, WatchlistConfig
 
 
 def test_default_config():
@@ -9,6 +9,8 @@ def test_default_config():
     assert config.log_level == "INFO"
     assert config.database.path == "data/investment.db"
     assert config.llm.provider == "openai"
+    assert config.investor_profile.monthly_income is None
+    assert config.investor_profile.risk_preference == "未设置"
 
 
 def test_watchlist_config():

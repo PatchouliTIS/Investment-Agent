@@ -45,12 +45,19 @@ email:
 
 schedule:
   data_sync_cron: "0 18 * * 1-5"       # 周一至周五 18:00 收盘后同步
+  alert_check_cron: "30 18 * * 1-5"     # 周一至周五 18:30，根据最新日线告警
   daily_report_cron: "30 19 * * 1-5"    # 周一至周五 19:30 发送日报
   weekly_report_cron: "0 10 * * 6"      # 周六 10:00 发送周报
 
 alerts:
   price_change_threshold: 5.0           # 涨跌幅超过5%触发告警
   volume_spike_threshold: 3.0           # 成交量超过20日均量3倍触发
+
+investor_profile:
+  monthly_income: null                  # 税前月收入（元），不填则不纳入建议
+  investable_cash: null                 # 当前可投资现金（元）
+  fund_assets: null                     # 当前基金资产（元）
+  risk_preference: "稳健"               # 保守 / 稳健 / 进取
 
 database:
   path: "data/investment.db"

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
-
 from loguru import logger
 
 from src.analysis.base_analyst import AnalysisResult
 from src.analysis.llm_client import LLMClient
+from src.config import InvestorProfileConfig
 
-
-SYSTEM_PROMPT = """你是一位专业的投资组合顾问。用户是一名程序员，月收入约4万元人民币（税前），
-手头有约20万可支配资金和30万基金。
+SYSTEM_PROMPT = """你是一位专业的投资组合顾问。
 
 根据所有个股分析结果，给出组合层面的投资建议。
 
@@ -39,8 +36,9 @@ class PortfolioAdvisor:
 
     name = "portfolio_advisor"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClient, profile: InvestorProfileConfig | None = None):
         self.llm = llm
+        self.profile = profile or InvestorProfileConfig()
 
     def analyze_portfolio(self, individual_results: list[AnalysisResult]) -> dict:
         """Synthesize individual analyses into portfolio-level advice."""
@@ -60,14 +58,24 @@ class PortfolioAdvisor:
                 f"摘要={result.summary}"
             )
 
+        profile_lines = [f"风险偏好: {self.profile.risk_preference}"]
+        if self.profile.monthly_income is not None:
+            profile_lines.append(f"税前月收入: {self.profile.monthly_income:,.0f} 元")
+        if self.profile.investable_cash is not None:
+            profile_lines.append(f"可投资现金: {self.profile.investable_cash:,.0f} 元")
+        if self.profile.fund_assets is not None:
+            profile_lines.append(f"基金资产: {self.profile.fund_assets:,.0f} 元")
+
         user_message = (
-            "以下是各个股的分析结果，请给出组合投资建议：\n\n"
+            "投资者画像：\n"
+            + "\n".join(profile_lines)
+            + "\n\n以下是各个股的分析结果，请给出组合投资建议：\n\n"
             + "\n".join(summaries)
         )
 
         try:
             result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
             return result
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Portfolio analysis failed: {e}")
             return {"summary": f"组合分析失败: {e}", "risk_level": "未知"}

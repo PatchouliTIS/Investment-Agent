@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 from loguru import logger
@@ -12,7 +12,7 @@ from src.analysis.base_analyst import AnalysisResult, BaseAnalyst
 from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
-
+from src.utils.chinese_calendar import shanghai_today
 
 SYSTEM_PROMPT = """你是一位专业的技术分析师。根据提供的技术指标数据，判断当前的技术面走势。
 
@@ -45,7 +45,7 @@ class TechnicalAnalyst(BaseAnalyst):
         self.queries = QueryService(db)
 
     def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
-        end = date.today()
+        end = shanghai_today()
         start = end - timedelta(days=300)  # ~1 year of trading days
         df = self.queries.get_quotes(market, symbol, start, end)
 
@@ -74,7 +74,7 @@ class TechnicalAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Technical analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,

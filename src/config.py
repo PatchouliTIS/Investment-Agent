@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -21,8 +20,8 @@ class WatchlistConfig(BaseModel):
 class LLMConfig(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o-mini"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     temperature: float = 0.3
     max_tokens: int = 4096
 
@@ -40,11 +39,21 @@ class ScheduleConfig(BaseModel):
     data_sync_cron: str = "0 18 * * 1-5"
     daily_report_cron: str = "30 19 * * 1-5"
     weekly_report_cron: str = "0 10 * * 6"
+    alert_check_cron: str = "30 18 * * 1-5"
 
 
 class AlertConfig(BaseModel):
     price_change_threshold: float = 5.0
     volume_spike_threshold: float = 3.0
+
+
+class InvestorProfileConfig(BaseModel):
+    """Optional investor inputs used to tailor portfolio-level advice."""
+
+    monthly_income: float | None = None
+    investable_cash: float | None = None
+    fund_assets: float | None = None
+    risk_preference: str = "未设置"
 
 
 class DatabaseConfig(BaseModel):
@@ -54,10 +63,11 @@ class DatabaseConfig(BaseModel):
 class AppConfig(BaseModel):
     watchlist: WatchlistConfig = WatchlistConfig()
     llm: LLMConfig = LLMConfig()
-    llm_deep: Optional[LLMConfig] = None
+    llm_deep: LLMConfig | None = None
     email: EmailConfig = EmailConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     alerts: AlertConfig = AlertConfig()
+    investor_profile: InvestorProfileConfig = InvestorProfileConfig()
     database: DatabaseConfig = DatabaseConfig()
     log_level: str = "INFO"
 

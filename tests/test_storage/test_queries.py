@@ -4,7 +4,6 @@ from datetime import date
 
 import pandas as pd
 
-from src.storage.models import StockQuote
 from src.storage.queries import QueryService
 
 
@@ -19,6 +18,7 @@ def test_create_tables(test_db):
     assert "financial_reports" in table_names
     assert "news" in table_names
     assert "analysis_reports" in table_names
+    assert "alert_events" in table_names
     assert "portfolio" in table_names
 
 
@@ -69,3 +69,18 @@ def test_upsert_idempotent(test_db):
 
     result = qs.get_quotes("a_share", "600519", date(2026, 3, 1), date(2026, 3, 1))
     assert len(result) == 1
+
+
+def test_save_alert_if_new_is_idempotent(test_db):
+    """The same daily alert should only be sent and stored once."""
+    qs = QueryService(test_db)
+
+    saved = qs.save_alert_if_new(
+        "600519", "价格异动 - 大涨", date(2026, 3, 2), "涨跌幅超过阈值"
+    )
+    duplicate = qs.save_alert_if_new(
+        "600519", "价格异动 - 大涨", date(2026, 3, 2), "涨跌幅超过阈值"
+    )
+
+    assert saved is True
+    assert duplicate is False

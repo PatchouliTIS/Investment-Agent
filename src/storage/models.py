@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
 from sqlalchemy import (
     Column,
@@ -13,7 +13,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
 
@@ -120,6 +119,22 @@ class AnalysisReport(Base):
     content_json = Column(Text)
     llm_model = Column(String(100))
     created_at = Column(DateTime, default=datetime.now, index=True)
+
+
+class AlertEvent(Base):
+    """Deduplicated market alert sent for a symbol on a trading day."""
+
+    __tablename__ = "alert_events"
+    __table_args__ = (
+        UniqueConstraint("symbol", "alert_type", "date", name="uq_alert_symbol_type_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    alert_type = Column(String(100), nullable=False)
+    date = Column(Date, nullable=False, index=True)
+    message = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
 
 
 class Portfolio(Base):

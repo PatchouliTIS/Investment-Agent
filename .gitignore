@@ -24,7 +24,7 @@ config/config.yaml
 .env
 
 # Runtime data
-data/
+/data/
 *.db
 
 # Logs

@@ -11,7 +11,6 @@ from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
 
-
 SYSTEM_PROMPT = """你是一位专业的市场舆情分析师。根据提供的相关新闻，分析市场情绪和舆论导向。
 
 请从以下维度分析：
@@ -72,7 +71,7 @@ class SentimentAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Sentiment analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -74,6 +73,7 @@ def _cmd_report(config, report_type: str):
     from src.storage.database import Database
 
     db = Database(config.database)
+    db.create_tables()
     llm_config = config.llm_deep if report_type == "weekly" and config.llm_deep else config.llm
     llm = LLMClient(llm_config)
     generator = ReportGenerator(llm, db, config)

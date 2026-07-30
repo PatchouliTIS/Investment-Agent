@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import pandas as pd
-from sqlalchemy import select, and_
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from loguru import logger
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from src.storage.database import Database
 from src.storage.models import (
+    AlertEvent,
     AnalysisReport,
     FinancialReport,
     FundFlow,
@@ -19,6 +19,7 @@ from src.storage.models import (
     NewsItem,
     StockQuote,
 )
+from src.utils.chinese_calendar import shanghai_now, shanghai_today
 
 
 class QueryService:
@@ -40,7 +41,7 @@ class QueryService:
             )
             if result:
                 return result[0]
-            return date.today() - timedelta(days=365)
+            return shanghai_today() - timedelta(days=365)
 
     def upsert_quotes(self, market: str, symbol: str, df: pd.DataFrame):
         """Insert new quotes, skip existing duplicates."""
@@ -121,6 +122,19 @@ class QueryService:
             session.commit()
             logger.debug(f"Upserted {len(df)} NAV records for {fund_code}")
 
+    def get_last_fund_nav_date(self, fund_code: str) -> date:
+        """Find the newest NAV date for incremental fund synchronization."""
+        with self.db.get_session() as session:
+            result = (
+                session.query(FundNav.date)
+                .filter(FundNav.fund_code == fund_code)
+                .order_by(FundNav.date.desc())
+                .first()
+            )
+            if result:
+                return result[0]
+            return shanghai_today() - timedelta(days=365)
+
     # --- Fund Flow ---
 
     def upsert_fund_flow(self, symbol: str, df: pd.DataFrame):
@@ -153,7 +167,7 @@ class QueryService:
                 report_date=report_date,
                 report_type=report_type,
                 data_json=json.dumps(data, ensure_ascii=False, default=str),
-                fetched_at=datetime.now(),
+                fetched_at=shanghai_now(),
             ).on_conflict_do_nothing(
                 index_elements=["symbol", "report_date", "report_type"]
             )
@@ -191,14 +205,14 @@ class QueryService:
                     content=row.get("content", ""),
                     url=row.get("url", ""),
                     published_at=pd.to_datetime(row.get("published_at")) if row.get("published_at") else None,
-                    fetched_at=datetime.now(),
+                    fetched_at=shanghai_now(),
                 )
                 session.add(news)
             session.commit()
 
     def get_recent_news(self, symbol: str, days: int = 7) -> list[dict]:
         """Get recent news for a symbol."""
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = shanghai_now() - timedelta(days=days)
         with self.db.get_session() as session:
             results = (
                 session.query(NewsItem)
@@ -225,7 +239,30 @@ class QueryService:
                 scope=scope,
                 content_json=json.dumps(content, ensure_ascii=False, default=str),
                 llm_model=llm_model,
-                created_at=datetime.now(),
+                created_at=shanghai_now(),
             )
             session.add(report)
             session.commit()
+
+    # --- Alerts ---
+
+    def save_alert_if_new(
+        self, symbol: str, alert_type: str, alert_date: date, message: str
+    ) -> bool:
+        """Persist an alert once per symbol/type/trading day.
+
+        Returns ``True`` only when the alert was newly recorded and should be sent.
+        """
+        with self.db.get_session() as session:
+            stmt = sqlite_insert(AlertEvent).values(
+                symbol=symbol,
+                alert_type=alert_type,
+                date=alert_date,
+                message=message,
+                created_at=shanghai_now(),
+            ).on_conflict_do_nothing(
+                index_elements=["symbol", "alert_type", "date"]
+            )
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount > 0

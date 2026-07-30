@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 from loguru import logger
 
@@ -10,7 +11,7 @@ from src.analysis.base_analyst import AnalysisResult, BaseAnalyst
 from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
-
+from src.utils.chinese_calendar import shanghai_today
 
 SYSTEM_PROMPT = """你是一位专业的股票基本面分析师。根据提供的财务数据和近期行情，分析公司的基本面状况。
 
@@ -43,9 +44,8 @@ class FundamentalAnalyst(BaseAnalyst):
     def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
         # Gather data
         financials = self.queries.get_latest_financial_report(symbol)
-        from datetime import date, timedelta
 
-        end = date.today()
+        end = shanghai_today()
         start = end - timedelta(days=365)
         quotes = self.queries.get_quotes(market, symbol, start, end)
 
@@ -86,7 +86,7 @@ class FundamentalAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Fundamental analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,
