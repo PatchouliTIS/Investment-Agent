@@ -16,12 +16,48 @@ def main():
     )
     parser.add_argument(
         "command",
-        choices=["init-db", "sync", "report", "test-email", "run"],
+        choices=[
+            "init-db",
+            "sync",
+            "report",
+            "set-holding",
+            "delete-holding",
+            "portfolio",
+            "test-email",
+            "run",
+        ],
         help="Command to execute",
     )
     parser.add_argument("--config", default="config/config.yaml", help="Config file path")
     parser.add_argument("--type", choices=["daily", "weekly"], default="daily", help="Report type")
+    parser.add_argument("--market", choices=["a_share", "fund", "hk", "us"], help="Holding market")
+    parser.add_argument("--symbol", help="Holding symbol")
+    parser.add_argument("--name", help="Holding display name")
+    parser.add_argument("--shares", type=float, help="Holding quantity")
+    parser.add_argument("--cost-price", type=float, help="Average cost per unit")
     args = parser.parse_args()
+
+    if args.command == "set-holding":
+        missing = [
+            option
+            for option, value in {
+                "--market": args.market,
+                "--symbol": args.symbol,
+                "--shares": args.shares,
+                "--cost-price": args.cost_price,
+            }.items()
+            if value is None
+        ]
+        if missing:
+            parser.error(f"set-holding requires {' '.join(missing)}")
+    elif args.command == "delete-holding":
+        missing = [
+            option
+            for option, value in {"--market": args.market, "--symbol": args.symbol}.items()
+            if value is None
+        ]
+        if missing:
+            parser.error(f"delete-holding requires {' '.join(missing)}")
 
     from src.config import load_config
 
@@ -42,6 +78,12 @@ def main():
         _cmd_sync(config)
     elif args.command == "report":
         _cmd_report(config, args.type)
+    elif args.command == "set-holding":
+        _cmd_set_holding(config, args)
+    elif args.command == "delete-holding":
+        _cmd_delete_holding(config, args)
+    elif args.command == "portfolio":
+        _cmd_portfolio(config)
     elif args.command == "test-email":
         _cmd_test_email(config)
     elif args.command == "run":
@@ -92,6 +134,50 @@ def _cmd_report(config, report_type: str):
     else:
         import json
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+
+
+def _cmd_set_holding(config, args):
+    """Create or update a manually entered holding."""
+    from src.storage.database import Database
+    from src.storage.queries import QueryService
+
+    db = Database(config.database)
+    db.create_tables()
+    QueryService(db).upsert_portfolio_holding(
+        args.market,
+        args.symbol,
+        args.name or args.symbol,
+        args.shares,
+        args.cost_price,
+    )
+    print(f"Holding saved: {args.market}/{args.symbol}")
+
+
+def _cmd_delete_holding(config, args):
+    """Delete one manually maintained holding."""
+    from src.storage.database import Database
+    from src.storage.queries import QueryService
+
+    db = Database(config.database)
+    db.create_tables()
+    deleted = QueryService(db).delete_portfolio_holding(args.market, args.symbol)
+    if deleted:
+        print(f"Holding deleted: {args.market}/{args.symbol}")
+    else:
+        print(f"Holding not found: {args.market}/{args.symbol}")
+
+
+def _cmd_portfolio(config):
+    """Print current locally valued holdings without contacting an LLM."""
+    import json
+
+    from src.storage.database import Database
+    from src.storage.queries import QueryService
+
+    db = Database(config.database)
+    db.create_tables()
+    valuation = QueryService(db).get_portfolio_valuation()
+    print(json.dumps(valuation, ensure_ascii=False, indent=2, default=str))
 
 
 def _cmd_test_email(config):

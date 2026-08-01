@@ -44,9 +44,11 @@ class TechnicalAnalyst(BaseAnalyst):
         super().__init__(llm, db)
         self.queries = QueryService(db)
 
-    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
+    def analyze(
+        self, symbol: str, market: str = "a_share", history_days: int = 300
+    ) -> AnalysisResult:
         end = shanghai_today()
-        start = end - timedelta(days=300)  # ~1 year of trading days
+        start = end - timedelta(days=history_days)
         df = self.queries.get_quotes(market, symbol, start, end)
 
         if df.empty or len(df) < 20:
@@ -64,7 +66,11 @@ class TechnicalAnalyst(BaseAnalyst):
         )
 
         try:
-            result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
+            result = self.llm.chat_json(
+                SYSTEM_PROMPT,
+                user_message,
+                request_context=f"{self.name}:{market}/{symbol}",
+            )
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,

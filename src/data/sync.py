@@ -26,7 +26,11 @@ class DataSyncService:
     ):
         self.config = config
         self.queries = QueryService(db)
-        self.client = client or AkshareDataClient()
+        self.client = client or AkshareDataClient(
+            use_env_proxy=config.akshare.use_env_proxy,
+            max_retries=config.akshare.max_retries,
+            retry_delay_seconds=config.akshare.retry_delay_seconds,
+        )
 
     def sync_all(self) -> dict[str, int]:
         """Synchronize each configured market and return inserted-record counts."""

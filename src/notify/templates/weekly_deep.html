@@ -21,7 +21,7 @@
   .rating.bearish { background: #43a047; }
   .confidence { color: #666; font-size: 12px; margin-left: 8px; }
   .analyst-tag { display: inline-block; background: #f3e5f5; color: #6a1b9a; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; }
-  .summary { color: #333; line-height: 1.6; margin: 8px 0; }
+  .summary { color: #333; line-height: 1.6; margin: 8px 0; white-space: pre-wrap; }
   .portfolio-box { background: #f3e5f5; border-radius: 6px; padding: 16px; }
   .footer { padding: 16px 24px; text-align: center; color: #999; font-size: 12px; }
   .detail-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 12px; margin-top: 8px; }
@@ -37,7 +37,7 @@
 
   {% if report.individual %}
   <div class="section">
-    <h2>个股深度分析</h2>
+    <h2>标的深度分析</h2>
     {% for symbol, data in report.individual.items() %}
     <div class="stock-card {{ data.analyses.values() | map(attribute='rating') | first | default('neutral') }}">
       <h3>{{ symbol }} <span style="color:#666;font-size:13px;">({{ data.market }})</span></h3>
@@ -83,6 +83,37 @@
   </div>
   {% endif %}
 
+  {% if report.valuation and report.valuation.holdings %}
+  <div class="section">
+    <h2>持仓估值与盈亏</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f5f5f5;">
+        <th style="padding:8px;text-align:left;border-bottom:2px solid #6a1b9a;">标的</th>
+        <th style="padding:8px;text-align:right;border-bottom:2px solid #6a1b9a;">数量</th>
+        <th style="padding:8px;text-align:right;border-bottom:2px solid #6a1b9a;">成本价</th>
+        <th style="padding:8px;text-align:right;border-bottom:2px solid #6a1b9a;">市值</th>
+        <th style="padding:8px;text-align:right;border-bottom:2px solid #6a1b9a;">浮盈亏</th>
+      </tr>
+      {% for holding in report.valuation.holdings %}
+      <tr>
+        <td style="padding:8px;border-bottom:1px solid #eee;">{{ holding.name }} ({{ holding.symbol }})</td>
+        <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">{{ "%.2f" | format(holding.shares) }}</td>
+        <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">{{ "%.4f" | format(holding.cost_price) }}</td>
+        {% if holding.market_value is not none %}
+        <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">{{ "%.2f" | format(holding.market_value) }} {{ holding.currency }}</td>
+        <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">{{ "%.2f" | format(holding.unrealized_pnl) }}{% if holding.unrealized_pnl_pct is not none %} ({{ "%.2f" | format(holding.unrealized_pnl_pct) }}%){% endif %}</td>
+        {% else %}
+        <td colspan="2" style="padding:8px;text-align:right;border-bottom:1px solid #eee;color:#999;">暂无本地价格数据</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+    {% for total in report.valuation.by_currency %}
+    <p style="font-size:13px;color:#555;margin:10px 0 0;">{{ total.currency }} 合计市值 {{ "%.2f" | format(total.market_value) }}，浮盈亏 {{ "%.2f" | format(total.unrealized_pnl) }}{% if total.unrealized_pnl_pct is not none %} ({{ "%.2f" | format(total.unrealized_pnl_pct) }}%){% endif %}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if report.portfolio %}
   <div class="section">
     <h2>组合策略建议</h2>
@@ -91,20 +122,36 @@
       {% if report.portfolio.risk_level %}
       <p><strong>组合风险等级:</strong> {{ report.portfolio.risk_level }}</p>
       {% endif %}
-      {% if report.portfolio.allocation_suggestions %}
-      <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+      {% if report.portfolio.holdings_advice %}
+      <h3 style="font-size:15px;margin:12px 0 4px;">持仓操作建议</h3>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px;">
         <tr style="background:#f5f5f5;">
           <th style="padding:8px;text-align:left;border-bottom:2px solid #6a1b9a;">标的</th>
           <th style="padding:8px;text-align:left;border-bottom:2px solid #6a1b9a;">市场</th>
           <th style="padding:8px;text-align:left;border-bottom:2px solid #6a1b9a;">操作</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #6a1b9a;">目标仓位</th>
           <th style="padding:8px;text-align:left;border-bottom:2px solid #6a1b9a;">理由</th>
         </tr>
-        {% for item in report.portfolio.allocation_suggestions %}
+        {% for item in report.portfolio.holdings_advice %}
         <tr>
           <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.symbol }}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.market | default('') }}</td>
-          <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.action }}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;"><strong>{{ item.action }}</strong></td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">{% if item.target_weight_pct is not none %}{{ "%.1f" | format(item.target_weight_pct) }}%{% else %}-{% endif %}</td>
           <td style="padding:8px;border-bottom:1px solid #eee;">{{ item.reason | default('') }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+      {% if report.portfolio.candidate_suggestions %}
+      <h3 style="font-size:15px;margin:16px 0 4px;color:#666;">候选观察标的</h3>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px;">
+        {% for item in report.portfolio.candidate_suggestions %}
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;">{{ item.symbol }}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;">{{ item.market | default('') }}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;">{{ item.action }}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#666;">{{ item.reason | default('') }}</td>
         </tr>
         {% endfor %}
       </table>

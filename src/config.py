@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -24,6 +25,11 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     temperature: float = 0.3
     max_tokens: int = 4096
+    output_format: Literal["json", "text"] = "json"
+    text_response_max_chars: int = Field(default=300, ge=50, le=2000)
+    max_retries: int = Field(default=2, ge=0, le=5)
+    retry_delay_seconds: float = Field(default=2.0, ge=0.0)
+    timeout_seconds: float = Field(default=90.0, gt=0.0, le=600.0)
 
 
 class EmailConfig(BaseModel):
@@ -47,6 +53,14 @@ class AlertConfig(BaseModel):
     volume_spike_threshold: float = 3.0
 
 
+class AkshareConfig(BaseModel):
+    """Network behavior for AKShare market-data requests."""
+
+    use_env_proxy: bool = False
+    max_retries: int = Field(default=2, ge=0, le=5)
+    retry_delay_seconds: float = Field(default=2.0, ge=0.0)
+
+
 class InvestorProfileConfig(BaseModel):
     """Optional investor inputs used to tailor portfolio-level advice."""
 
@@ -67,6 +81,7 @@ class AppConfig(BaseModel):
     email: EmailConfig = EmailConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     alerts: AlertConfig = AlertConfig()
+    akshare: AkshareConfig = AkshareConfig()
     investor_profile: InvestorProfileConfig = InvestorProfileConfig()
     database: DatabaseConfig = DatabaseConfig()
     log_level: str = "INFO"

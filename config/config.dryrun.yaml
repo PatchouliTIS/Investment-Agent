@@ -53,40 +53,40 @@ watchlist:
 # 当前 Agent 未实现指数数据同步和分析，故不放入上述可同步观察池。
 
 llm:
-  provider: "openai"              # openai | anthropic | ollama
-  model: "gpt-4o-mini"           # 日常分析用低成本模型
-  api_key: "${OPENAI_API_KEY}"
-  base_url: null
-  temperature: 0.2
-  max_tokens: 4096
-  output_format: "json"           # json（结构化结论）| text（直接展示模型原文）
-  text_response_max_chars: 300    # text 模式下的期望最大中文字符数
-  max_retries: 2
+  provider: "anthropic"              # openai | anthropic | ollama
+  model: "claude-fable-5"           # 日常分析用低成本模型
+  api_key: "${ANTHROPIC_API_KEY}"
+  base_url: "https://wawapii.com"
+  temperature: 1.0
+  max_tokens: 2048
+  output_format: "json"
+  text_response_max_chars: 250
+  max_retries: 0
   retry_delay_seconds: 2.0
   timeout_seconds: 90.0
 
 # 深度分析用更强模型 (可选)
 llm_deep:
   provider: "anthropic"
-  model: "claude-sonnet-4-20250514"
+  model: "claude-fable-5"
   api_key: "${ANTHROPIC_API_KEY}"
-  base_url: null
-  temperature: 0.2
-  max_tokens: 8192
+  base_url: "https://wawapii.com"
+  temperature: 1.0
+  max_tokens: 4096
   output_format: "json"
-  text_response_max_chars: 300
-  max_retries: 2
+  text_response_max_chars: 500
+  max_retries: 0
   retry_delay_seconds: 2.0
-  timeout_seconds: 90.0
+  timeout_seconds: 120.0
 
 email:
   smtp_host: "smtp.qq.com"
   smtp_port: 465
   use_ssl: true
-  sender: "your_email@qq.com"
+  sender: "pyramkar@qq.com"
   password: "${EMAIL_SMTP_PASSWORD}"
   recipients:
-    - "your_email@qq.com"
+    - "pyramkar@qq.com"
 
 schedule:
   data_sync_cron: "0 18 * * 1-5"       # 周一至周五 18:00 收盘后同步
@@ -99,19 +99,17 @@ alerts:
   volume_spike_threshold: 3.0           # 成交量超过20日均量3倍触发
 
 akshare:
-  # false = 强制直连，绕过 shell 代理与操作系统代理设置
-  # true  = 沿用环境代理（需代理放行 push2his.eastmoney.com）
-  use_env_proxy: false
+  use_env_proxy: false                  # 绕过 shell 中的 http_proxy/https_proxy
   max_retries: 2                        # 临时网络失败后的重试次数
   retry_delay_seconds: 2.0              # 首次重试等待秒数，后续指数退避
 
 investor_profile:
-  monthly_income: null                  # 税前月收入（元），不填则不纳入建议
-  investable_cash: null                 # 当前可投资现金（元）
-  fund_assets: null                     # 当前基金资产（元）
+  monthly_income: 40000                  # 税前月收入（元），不填则不纳入建议
+  investable_cash: 100000                 # 当前可投资现金（元）
+  fund_assets: 200000                     # 当前基金资产（元）
   risk_preference: "稳健"               # 保守 / 稳健 / 进取
 
 database:
   path: "data/investment.db"
 
-log_level: "INFO"
+log_level: "DEBUG"

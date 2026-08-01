@@ -40,14 +40,16 @@ class SentimentAnalyst(BaseAnalyst):
         super().__init__(llm, db)
         self.queries = QueryService(db)
 
-    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
-        news_items = self.queries.get_recent_news(symbol, days=7)
+    def analyze(
+        self, symbol: str, market: str = "a_share", news_days: int = 7
+    ) -> AnalysisResult:
+        news_items = self.queries.get_recent_news(symbol, days=news_days)
 
         if not news_items:
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,
-                summary="近7天无相关新闻",
+                summary=f"近{news_days}天无相关新闻",
                 rating="neutral",
                 confidence=0.3,
             )
@@ -61,7 +63,11 @@ class SentimentAnalyst(BaseAnalyst):
         user_message = f"请分析股票 {symbol} 的近期舆情：\n\n{news_text}"
 
         try:
-            result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
+            result = self.llm.chat_json(
+                SYSTEM_PROMPT,
+                user_message,
+                request_context=f"{self.name}:{market}/{symbol}",
+            )
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,

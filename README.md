@@ -23,10 +23,10 @@ AI-powered personal investment decision support agent that periodically scrapes 
 ```
 src/
 ├── config.py                 # Pydantic config with ${ENV_VAR} support
-├── main.py                   # CLI: init-db / sync / report / test-email / run
+├── main.py                   # CLI: init-db / sync / report / set-holding / delete-holding / portfolio / test-email / run
 ├── data/                     # Data fetchers (a_share, fund, hk_us, news, sync)
 ├── storage/                  # ORM models, DB management, query service
-├── analysis/                 # LLM client, 4 analyst agents, report generator
+├── analysis/                 # LLM client, stock/fund analysts, portfolio advisor, report generator
 ├── notify/                   # Email sender + 3 HTML templates
 ├── scheduler/                # Job definitions + APScheduler runner
 └── utils/                    # Logging, rate limiter, trading day calendar
@@ -51,6 +51,13 @@ python -m src.main sync
 
 # 5. Generate a report (requires valid LLM API key)
 python -m src.main report --type daily
+
+# Record or update an actual holding, then inspect its local valuation
+python -m src.main set-holding --market a_share --symbol 600519 --name 贵州茅台 --shares 100 --cost-price 1450
+python -m src.main set-holding --market fund --symbol 510300 --name 沪深300ETF --shares 1000 --cost-price 3.85
+# Permanently remove a holding by its market and symbol
+python -m src.main delete-holding --market fund --symbol 510300
+python -m src.main portfolio
 
 # 6. Test email delivery
 python -m src.main test-email
@@ -80,7 +87,18 @@ Sensitive values use `${ENV_VAR}` interpolation from `.env`.
 | **Fundamental** | Analyzes financial indicators (ROE, margins, growth, debt) via LLM |
 | **Technical** | Computes MA/RSI/MACD with pandas, then LLM interprets the signals |
 | **Sentiment** | Feeds recent news into LLM for sentiment scoring |
+| **Fund** | Calculates NAV returns, drawdown, and annualized volatility before LLM interpretation |
 | **Portfolio Advisor** | Synthesizes all individual analyses into allocation advice |
+
+## Holdings and Valuation
+
+Use `set-holding` to maintain actual positions for `a_share`, `fund`, `hk`, or `us`. The command upserts each `market + symbol` position, so a later entry replaces its quantity and average cost. Use `delete-holding --market MARKET --symbol SYMBOL` to permanently remove one position; a missing position is reported without changing any other holdings. `portfolio` values A/HK/US stocks with the most recent locally synchronized close and funds with the most recent NAV.
+
+Valuation is grouped by CNY, HKD, and USD. It intentionally does not aggregate across currencies because the application does not yet sync a foreign-exchange conversion source. Daily and weekly email reports include per-holding cost, latest price, market value, and unrealized P&L when local pricing is available.
+
+## Report Windows
+
+Daily and weekly reports are generated through independent analysis windows. The daily brief uses 20 recent trading days, 7 days of news, and 180 days of fund NAV data. The weekly report uses a separate 60-trading-day fundamental summary, 365-day technical and fund history, 30 days of news, and up to two years of fundamental market context; it does not reuse the daily-report generation path.
 
 ## Schedule (default)
 
@@ -110,6 +128,18 @@ python -m pytest tests/ -v  # Python 3.10+ with the dev dependencies installed
 # Lint
 ruff check src/ tests/
 ```
+
+### Remote LLM Probe
+
+The regular test suite does not contact an LLM provider. To send one short, billable
+`PING_OK` request using the active `config/config.yaml` and `.env` credentials, run:
+
+```bash
+RUN_LLM_INTEGRATION=1 python -m pytest -q -m integration tests/test_analysis/test_llm_integration.py
+```
+
+This test uses 32 maximum output tokens, a 20-second timeout, and no automatic retry.
+It verifies only that the configured endpoint responds through the application's LLM client.
 
 ## Disclaimer
 

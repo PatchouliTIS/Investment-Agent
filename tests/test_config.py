@@ -9,6 +9,8 @@ def test_default_config():
     assert config.log_level == "INFO"
     assert config.database.path == "data/investment.db"
     assert config.llm.provider == "openai"
+    assert config.akshare.use_env_proxy is False
+    assert config.akshare.max_retries == 2
     assert config.investor_profile.monthly_income is None
     assert config.investor_profile.risk_preference == "未设置"
 
