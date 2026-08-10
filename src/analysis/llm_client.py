@@ -18,6 +18,7 @@ from litellm import (
 )
 from loguru import logger
 
+from src.analysis.llm_cache import LLMCache
 from src.config import LLMConfig
 
 RETRYABLE_LLM_ERRORS = (
@@ -32,8 +33,9 @@ RETRYABLE_LLM_ERRORS = (
 class LLMClient:
     """Thin wrapper around litellm providing consistent multi-model access."""
 
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: LLMConfig, cache: LLMCache | None = None):
         self.config = config
+        self.cache = cache
         # Build the model string litellm expects
         if config.provider == "ollama":
             self.model = f"ollama/{config.model}"
@@ -68,6 +70,22 @@ class LLMClient:
         if self.config.base_url:
             kwargs["api_base"] = self.config.base_url
 
+        # Hash only response-affecting fields; credentials and endpoint stay out.
+        cache_key = None
+        if self.cache is not None and self.cache.enabled:
+            cache_key = LLMCache.build_key(
+                self.model,
+                {
+                    "system_prompt": system_prompt,
+                    "user_message": user_message,
+                    "temperature": self.config.temperature,
+                    "max_tokens": self.config.max_tokens,
+                },
+            )
+            cached = self.cache.get(cache_key, request_context)
+            if cached is not None:
+                return cached
+
         for attempt in range(self.config.max_retries + 1):
             attempt_number = attempt + 1
             attempt_started_at = time.monotonic()
@@ -81,6 +99,14 @@ class LLMClient:
                     f"elapsed_seconds={time.monotonic() - started_at:.2f} "
                     f"response_chars={len(content)}"
                 )
+                if cache_key is not None and content:
+                    self.cache.put(
+                        cache_key,
+                        content,
+                        request_context=request_context,
+                        llm_model=self.model,
+                        prompt_chars=len(system_prompt) + len(user_message),
+                    )
                 return content
             except RETRYABLE_LLM_ERRORS as error:
                 error_details = self._error_details(error)
@@ -150,7 +176,7 @@ class LLMClient:
             user_message,
             request_context=request_context,
         )
-        return self._parse_json(raw)
+        return self._parse_json(raw, request_context)
 
     def _endpoint_label(self) -> str:
         """Return the configured endpoint host without logging URL paths or credentials."""
@@ -168,7 +194,7 @@ class LLMClient:
         return f"status_code={status_code if status_code is not None else 'none'} error={message}"
 
     @staticmethod
-    def _parse_json(raw: str) -> dict:
+    def _parse_json(raw: str, request_context: str = "unspecified") -> dict:
         """Parse JSON from LLM response, handling markdown fences."""
         cleaned = raw.strip()
         # Remove markdown code fences
@@ -190,5 +216,15 @@ class LLMClient:
                     logger.debug("Extracted JSON object from an LLM response with surrounding text")
                     return result
 
-        logger.warning("Failed to parse LLM JSON response, returning raw text")
-        return {"raw_response": raw, "parse_error": True}
+        preview = " ".join(raw.split())[:120]
+        logger.warning(
+            f"LLM JSON parse failed context={request_context} response_chars={len(raw)} "
+            f"response_preview={preview!r}"
+        )
+        return {
+            "summary": f"模型返回非 JSON 内容：{raw}",
+            "rating": "neutral",
+            "confidence": 0.0,
+            "raw_response": raw,
+            "parse_error": True,
+        }

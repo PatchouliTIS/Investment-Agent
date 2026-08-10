@@ -121,6 +121,27 @@ class AnalysisReport(Base):
     created_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class LLMCacheEntry(Base):
+    """Content-addressed cache of LLM responses.
+
+    ``cache_key`` hashes the model plus the exact request payload, so any change
+    to prompts or market data yields a new key and a fresh call. Re-running a
+    report over unchanged data replays these rows instead of spending tokens.
+    """
+
+    __tablename__ = "llm_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cache_key = Column(String(64), nullable=False, unique=True, index=True)
+    request_context = Column(String(120))
+    llm_model = Column(String(100))
+    response_text = Column(Text, nullable=False)
+    prompt_chars = Column(Integer)
+    hit_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    last_used_at = Column(DateTime, default=datetime.now)
+
+
 class AlertEvent(Base):
     """Deduplicated market alert sent for a symbol on a trading day."""
 

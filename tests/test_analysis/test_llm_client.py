@@ -32,10 +32,26 @@ def test_parse_json_with_surrounding_text():
 
 
 def test_parse_json_invalid():
-    """Test fallback for invalid JSON."""
+    """Invalid JSON remains visible to reports and diagnostics."""
     result = LLMClient._parse_json("not json at all")
     assert result["parse_error"] is True
+    assert result["summary"] == "模型返回非 JSON 内容：not json at all"
+    assert result["rating"] == "neutral"
+    assert result["confidence"] == 0.0
     assert "not json at all" in result["raw_response"]
+
+
+def test_parse_json_logs_context_and_short_response_preview(monkeypatch):
+    """Malformed provider responses retain the failing analysis context in logs."""
+    messages = []
+    monkeypatch.setattr(llm_client.logger, "warning", messages.append)
+
+    LLMClient._parse_json("...", request_context="fundamental:a_share/688300")
+
+    assert len(messages) == 1
+    assert "context=fundamental:a_share/688300" in messages[0]
+    assert "response_chars=3" in messages[0]
+    assert "response_preview='...'" in messages[0]
 
 
 def test_chat_json_returns_raw_text_when_configured(monkeypatch):

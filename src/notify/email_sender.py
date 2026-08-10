@@ -26,8 +26,8 @@ class EmailSender:
             autoescape=True,
         )
 
-    def send_report(self, report: dict, template_name: str):
-        """Render a report with a template and send it via email."""
+    def render_report(self, report: dict, template_name: str) -> tuple[str, str]:
+        """Render a report to ``(subject, html)`` without sending anything."""
         template = self.jinja_env.get_template(template_name)
         html_content = template.render(report=report)
 
@@ -38,7 +38,15 @@ class EmailSender:
             "alert": "投资告警",
         }
         subject = f"{type_labels.get(report_type, '投资报告')} - {report.get('date', shanghai_today())}"
+        return subject, html_content
 
+    def send_rendered(self, subject: str, html_content: str):
+        """Send an already-rendered report, avoiding a second template pass."""
+        self._send_html(subject, html_content)
+
+    def send_report(self, report: dict, template_name: str):
+        """Render a report with a template and send it via email."""
+        subject, html_content = self.render_report(report, template_name)
         self._send_html(subject, html_content)
 
     def send_alert(self, alert_data: dict):

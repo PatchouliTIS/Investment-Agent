@@ -6,11 +6,13 @@ from datetime import timedelta
 
 from loguru import logger
 
+from src.analysis.llm_cache import LLMCache
 from src.analysis.llm_client import LLMClient
 from src.analysis.report_generator import ReportGenerator
 from src.config import AppConfig
 from src.data.sync import DataSyncService
 from src.notify.email_sender import EmailSender
+from src.notify.local_report import save_report
 from src.storage.database import Database
 from src.storage.queries import QueryService
 from src.utils.chinese_calendar import is_trading_day, shanghai_today
@@ -26,32 +28,49 @@ def job_daily_data_sync(config: AppConfig, db: Database):
     sync.sync_all()
 
 
+def _build_generator(config: AppConfig, db: Database, llm_config) -> ReportGenerator:
+    """Wire a cache-backed generator so retries replay instead of re-billing."""
+    cache = LLMCache(db, config.llm_cache)
+    cache.purge_expired()
+    return ReportGenerator(LLMClient(llm_config, cache=cache), db, config)
+
+
+def _deliver_report(config: AppConfig, report: dict, template: str) -> None:
+    """Email a report, falling back to disk so a failed send wastes no tokens."""
+    sender = EmailSender(config.email)
+    subject, html = sender.render_report(report, template)
+
+    problem = config.email.credential_problem()
+    if problem:
+        path = save_report(report, html)
+        logger.warning(f"Email skipped ({problem}); report saved locally path={path}")
+        return
+
+    try:
+        sender.send_rendered(subject, html)
+    except Exception as error:  # noqa: BLE001
+        path = save_report(report, html)
+        logger.error(f"Email delivery failed, report kept locally path={path}: {error}")
+
+
 def job_daily_report(config: AppConfig, db: Database):
     """Generate and send daily brief."""
     if not is_trading_day():
         logger.info("Not a trading day, skipping daily report.")
         return
     logger.info("Running daily report job...")
-    llm = LLMClient(config.llm)
-    generator = ReportGenerator(llm, db, config)
+    generator = _build_generator(config, db, config.llm)
     report = generator.generate_daily_brief()
-
-    if config.email.sender and config.email.recipients:
-        sender = EmailSender(config.email)
-        sender.send_report(report, "daily_brief.html")
+    _deliver_report(config, report, "daily_brief.html")
 
 
 def job_weekly_report(config: AppConfig, db: Database):
     """Generate and send weekly deep analysis."""
     logger.info("Running weekly report job...")
     llm_config = config.llm_deep if config.llm_deep else config.llm
-    llm = LLMClient(llm_config)
-    generator = ReportGenerator(llm, db, config)
+    generator = _build_generator(config, db, llm_config)
     report = generator.generate_weekly_deep()
-
-    if config.email.sender and config.email.recipients:
-        sender = EmailSender(config.email)
-        sender.send_report(report, "weekly_deep.html")
+    _deliver_report(config, report, "weekly_deep.html")
 
 
 def job_check_alerts(config: AppConfig, db: Database):

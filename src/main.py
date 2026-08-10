@@ -24,6 +24,8 @@ def main():
             "delete-holding",
             "portfolio",
             "test-email",
+            "cache-stats",
+            "clear-cache",
             "run",
         ],
         help="Command to execute",
@@ -86,6 +88,10 @@ def main():
         _cmd_portfolio(config)
     elif args.command == "test-email":
         _cmd_test_email(config)
+    elif args.command == "cache-stats":
+        _cmd_cache_stats(config)
+    elif args.command == "clear-cache":
+        _cmd_clear_cache(config)
     elif args.command == "run":
         _cmd_run(config)
 
@@ -109,15 +115,30 @@ def _cmd_sync(config):
 
 
 def _cmd_report(config, report_type: str):
+    from loguru import logger
+
+    from src.analysis.llm_cache import LLMCache
     from src.analysis.llm_client import LLMClient
     from src.analysis.report_generator import ReportGenerator
     from src.notify.email_sender import EmailSender
+    from src.notify.local_report import save_report
     from src.storage.database import Database
 
     db = Database(config.database)
     db.create_tables()
     llm_config = config.llm_deep if report_type == "weekly" and config.llm_deep else config.llm
-    llm = LLMClient(llm_config)
+
+    # Warn before spending tokens, but still generate: the cache makes a retry free.
+    credential_problem = config.email.credential_problem()
+    if credential_problem:
+        logger.warning(
+            f"Email delivery unavailable ({credential_problem}); "
+            "report will be saved under data/reports/ instead"
+        )
+
+    cache = LLMCache(db, config.llm_cache)
+    cache.purge_expired()
+    llm = LLMClient(llm_config, cache=cache)
     generator = ReportGenerator(llm, db, config)
 
     if report_type == "daily":
@@ -125,15 +146,26 @@ def _cmd_report(config, report_type: str):
     else:
         report = generator.generate_weekly_deep()
 
-    # Send via email if configured
-    if config.email.sender and config.email.recipients:
-        sender = EmailSender(config.email)
-        template = "daily_brief.html" if report_type == "daily" else "weekly_deep.html"
-        sender.send_report(report, template)
+    template = "daily_brief.html" if report_type == "daily" else "weekly_deep.html"
+    sender = EmailSender(config.email)
+    subject, html = sender.render_report(report, template)
+
+    if credential_problem:
+        path = save_report(report, html)
+        print(f"Email skipped ({credential_problem}). Report saved: {path}")
+        print("Fix it by setting EMAIL_SMTP_PASSWORD to your QQ SMTP auth code, then re-run.")
+        print("The re-run replays cached LLM responses, so it costs no tokens.")
+        return
+
+    try:
+        sender.send_rendered(subject, html)
         print(f"Report sent to: {', '.join(config.email.recipients)}")
-    else:
-        import json
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    except Exception as error:
+        path = save_report(report, html)
+        logger.error(f"Email delivery failed, report kept locally: {error}")
+        print(f"Email failed ({error}). Report saved: {path}")
+        print("Re-running replays cached LLM responses, so it costs no tokens.")
+        raise SystemExit(1) from error
 
 
 def _cmd_set_holding(config, args):
@@ -186,6 +218,30 @@ def _cmd_test_email(config):
     sender = EmailSender(config.email)
     sender.send_test()
     print(f"Test email sent to: {', '.join(config.email.recipients)}")
+
+
+def _cmd_cache_stats(config):
+    """Report how much of the LLM cache is available for reuse."""
+    import json
+
+    from src.analysis.llm_cache import LLMCache
+    from src.storage.database import Database
+
+    db = Database(config.database)
+    db.create_tables()
+    stats = LLMCache(db, config.llm_cache).stats()
+    print(json.dumps(stats, ensure_ascii=False, indent=2, default=str))
+
+
+def _cmd_clear_cache(config):
+    """Drop every cached LLM response, forcing fresh calls on the next run."""
+    from src.analysis.llm_cache import LLMCache
+    from src.storage.database import Database
+
+    db = Database(config.database)
+    db.create_tables()
+    removed = LLMCache(db, config.llm_cache).clear()
+    print(f"Cleared {removed} cached LLM response(s).")
 
 
 def _cmd_run(config):

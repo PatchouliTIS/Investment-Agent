@@ -32,6 +32,13 @@ class LLMConfig(BaseModel):
     timeout_seconds: float = Field(default=90.0, gt=0.0, le=600.0)
 
 
+class LLMCacheConfig(BaseModel):
+    """Local reuse of identical LLM requests to avoid re-spending tokens."""
+
+    enabled: bool = True
+    ttl_hours: float = Field(default=24.0, gt=0.0)
+
+
 class EmailConfig(BaseModel):
     smtp_host: str = "smtp.qq.com"
     smtp_port: int = 465
@@ -39,6 +46,28 @@ class EmailConfig(BaseModel):
     sender: str = ""
     password: str = ""
     recipients: list[str] = Field(default_factory=list)
+
+    def credential_problem(self) -> str | None:
+        """Return why SMTP login cannot succeed, or ``None`` when usable.
+
+        ``_resolve_env_vars`` leaves ``${VAR}`` untouched for unset variables, so
+        an unresolved placeholder would otherwise reach the SMTP AUTH command and
+        surface as a confusing ``Connection unexpectedly closed``.
+        """
+        if not self.sender:
+            return "email.sender 未配置"
+        if not self.recipients:
+            return "email.recipients 未配置"
+        if not self.password:
+            return "email.password 为空"
+        if _ENV_VAR_PATTERN.search(self.password):
+            missing = ", ".join(_ENV_VAR_PATTERN.findall(self.password))
+            return f"环境变量 {missing} 未设置（QQ 邮箱需填授权码，不是登录密码）"
+        return None
+
+    def is_usable(self) -> bool:
+        """Whether an SMTP send should be attempted at all."""
+        return self.credential_problem() is None
 
 
 class ScheduleConfig(BaseModel):
@@ -78,6 +107,7 @@ class AppConfig(BaseModel):
     watchlist: WatchlistConfig = WatchlistConfig()
     llm: LLMConfig = LLMConfig()
     llm_deep: LLMConfig | None = None
+    llm_cache: LLMCacheConfig = LLMCacheConfig()
     email: EmailConfig = EmailConfig()
     schedule: ScheduleConfig = ScheduleConfig()
     alerts: AlertConfig = AlertConfig()
