@@ -25,7 +25,7 @@ watchlist:
 llm:
   model: "claude-opus-4-6"           # 日常分析模型
   api_key: "${AICODING_API_KEY}"     # 存储在 .env 中
-  base_url: "https://api.aicoding.sh/v1/messages"
+  base_url: "https://wawapii.com/v1/messages"
   temperature: 0.3
   max_tokens: 4096
 
@@ -33,7 +33,7 @@ llm:
 llm_deep:
   model: "claude-opus-4-6"
   api_key: "${AICODING_API_KEY}"
-  base_url: "https://api.aicoding.sh/v1/messages"
+  base_url: "https://wawapii.com/v1/messages"
   temperature: 0.2
   max_tokens: 8192
 
@@ -58,5 +58,12 @@ alerts:
 
 database:
   path: "data/investment.db"
+
+# 个人财务画像（用于组合顾问生成仓位/定投建议）
+profile:
+  monthly_income: 40000      # 税前月收入（元）
+  available_cash: 200000     # 可支配资金（元）
+  fund_assets: 300000        # 基金资产（元）
+  risk_preference: "中等"    # 风险偏好：低/中等/高
 
 log_level: "INFO"

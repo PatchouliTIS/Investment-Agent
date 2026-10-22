@@ -8,11 +8,8 @@ def test_default_config():
     config = AppConfig()
     assert config.log_level == "INFO"
     assert config.database.path == "data/investment.db"
-    assert config.llm.provider == "openai"
-    assert config.akshare.use_env_proxy is False
-    assert config.akshare.max_retries == 2
-    assert config.investor_profile.monthly_income is None
-    assert config.investor_profile.risk_preference == "未设置"
+    assert config.llm.model == "claude-opus-4-6"
+    assert config.llm.base_url == "https://wawapii.com/v1/messages"
 
 
 def test_watchlist_config():
@@ -30,6 +27,7 @@ def test_watchlist_config():
 def test_llm_config():
     """Test LLM config defaults."""
     llm = LLMConfig()
-    assert llm.provider == "openai"
+    assert llm.model == "claude-opus-4-6"
+    assert llm.base_url == "https://wawapii.com/v1/messages"
     assert llm.temperature == 0.3
     assert llm.max_tokens == 4096

@@ -30,7 +30,7 @@ def sample_config():
         llm=LLMConfig(
             model="claude-opus-4-6",
             api_key="aicoding-test-key",
-            base_url="https://api.aicoding.sh/v1/messages",
+            base_url="https://wawapii.com/v1/messages",
         ),
         email=EmailConfig(
             smtp_host="smtp.qq.com",

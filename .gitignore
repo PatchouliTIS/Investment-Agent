@@ -23,7 +23,7 @@ env/
 config/config.yaml
 .env
 
-# Runtime data
+# Runtime data (repo root only; must not shadow src/data/)
 /data/
 *.db
 

@@ -46,8 +46,8 @@ def test_client_init():
     config = LLMConfig(
         model="claude-opus-4-6",
         api_key="aicoding-test-key",
-        base_url="https://api.aicoding.sh/v1/messages",
+        base_url="https://wawapii.com/v1/messages",
     )
     client = LLMClient(config)
-    assert client.url == "https://api.aicoding.sh/v1/messages"
-    assert client.headers["Authorization"] == "aicoding-test-key"
+    assert client.url == "https://wawapii.com/v1/messages"
+    assert client.headers["Authorization"] == "Bearer aicoding-test-key"

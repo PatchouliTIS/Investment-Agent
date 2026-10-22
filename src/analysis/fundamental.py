@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 
 from loguru import logger
 
@@ -42,17 +42,12 @@ class FundamentalAnalyst(BaseAnalyst):
         self.queries = QueryService(db)
 
     def analyze(
-        self,
-        symbol: str,
-        market: str = "a_share",
-        history_days: int = 365,
-        recent_trading_days: int = 20,
+        self, symbol: str, market: str = "a_share", lookback_days: int = 365
     ) -> AnalysisResult:
         # Gather data
         financials = self.queries.get_latest_financial_report(symbol)
-
-        end = shanghai_today()
-        start = end - timedelta(days=history_days)
+        end = date.today()
+        start = end - timedelta(days=lookback_days)
         quotes = self.queries.get_quotes(market, symbol, start, end)
 
         # Build prompt with available data

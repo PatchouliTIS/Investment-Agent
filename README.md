@@ -13,8 +13,8 @@ AI-powered personal investment decision support agent that periodically scrapes 
 | Layer | Tech | Purpose |
 |-------|------|---------|
 | Data | AKShare | A-shares, funds/ETFs, HK/US stocks, news |
-| Storage | SQLite + SQLAlchemy | 8 tables, upsert dedup |
-| AI | litellm (OpenAI / Claude / Ollama) | 3 analyst agents + portfolio advisor |
+| Storage | SQLite + SQLAlchemy | 7 tables, upsert dedup |
+| AI | Messages API (wawapii.com) | 3 analyst agents + portfolio advisor |
 | Notify | SMTP + Jinja2 HTML | Daily brief, weekly deep, alerts |
 | Schedule | APScheduler 3.x | In-process cron jobs |
 
@@ -71,8 +71,8 @@ python -m src.main run
 Edit `config/config.yaml` (copied from `config.example.yaml`):
 
 - **watchlist** — stock/fund codes to track
-- **llm** — primary LLM provider for daily analysis (e.g. `gpt-4o-mini`)
-- **llm_deep** — optional stronger model for weekly deep reports (e.g. `claude-sonnet-4-20250514`)
+- **llm** — primary LLM for daily analysis (e.g. `claude-opus-4-6` via wawapii.com)
+- **llm_deep** — optional stronger model for weekly deep reports (falls back to `llm` if unset)
 - **email** — SMTP settings (QQ Mail, Gmail, etc.)
 - **schedule** — cron expressions for data sync, daily/weekly reports
 - **alerts** — price change % and volume spike thresholds

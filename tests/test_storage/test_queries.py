@@ -71,92 +71,26 @@ def test_upsert_idempotent(test_db):
     assert len(result) == 1
 
 
-def test_save_alert_if_new_is_idempotent(test_db):
-    """The same daily alert should only be sent and stored once."""
+def test_save_news_dedup(test_db):
+    """Test that saving the same news twice doesn't create duplicates."""
     qs = QueryService(test_db)
 
-    saved = qs.save_alert_if_new(
-        "600519", "价格异动 - 大涨", date(2026, 3, 2), "涨跌幅超过阈值"
+    df = pd.DataFrame(
+        [
+            {"title": "新闻A", "content": "内容A", "url": "http://a", "published_at": "2026-03-01 10:00:00"},
+            {"title": "新闻B", "content": "内容B", "url": "http://b", "published_at": "2026-03-01 11:00:00"},
+        ]
     )
-    duplicate = qs.save_alert_if_new(
-        "600519", "价格异动 - 大涨", date(2026, 3, 2), "涨跌幅超过阈值"
+    assert qs.save_news("eastmoney", "600519", df) == 2
+    # Re-saving the same batch inserts nothing
+    assert qs.save_news("eastmoney", "600519", df) == 0
+    # Same title under a different symbol is a different item
+    assert qs.save_news("eastmoney", "000858", df.head(1)) == 1
+    # A batch mixing duplicates and new items only inserts the new ones
+    df2 = pd.DataFrame(
+        [
+            {"title": "新闻A", "content": "内容A", "url": "http://a", "published_at": "2026-03-01 10:00:00"},
+            {"title": "新闻C", "content": "内容C", "url": "http://c", "published_at": "2026-03-02 09:00:00"},
+        ]
     )
-
-    assert saved is True
-    assert duplicate is False
-
-
-def test_portfolio_valuation_uses_local_prices_and_keeps_currencies_separate(test_db):
-    """Holdings use the appropriate local data source without FX aggregation."""
-    qs = QueryService(test_db)
-    qs.upsert_portfolio_holding("a_share", "600519", "贵州茅台", 10, 100.0)
-    qs.upsert_portfolio_holding("fund", "510300", "沪深300ETF", 100, 1.0)
-    qs.upsert_quotes(
-        "a_share",
-        "600519",
-        pd.DataFrame(
-            [
-                {
-                    "date": date(2026, 3, 2),
-                    "open": 104.0,
-                    "high": 106.0,
-                    "low": 103.0,
-                    "close": 105.0,
-                    "volume": 10000,
-                    "turnover": 1050000,
-                    "change_pct": 5.0,
-                }
-            ]
-        ),
-    )
-    qs.upsert_fund_nav(
-        "510300",
-        "etf",
-        pd.DataFrame(
-            [{"date": date(2026, 3, 2), "nav": 1.2, "acc_nav": 1.2, "daily_return": 1.0}]
-        ),
-    )
-
-    valuation = qs.get_portfolio_valuation()
-    holdings = {holding["symbol"]: holding for holding in valuation["holdings"]}
-
-    assert valuation["unvalued_count"] == 0
-    assert holdings["510300"]["market_value"] == 120.0
-    assert holdings["600519"]["market_value"] == 1050.0
-    assert valuation["by_currency"] == [
-        {
-            "currency": "CNY",
-            "market_value": 1170.0,
-            "cost_value": 1100.0,
-            "unrealized_pnl": 70.0,
-            "unrealized_pnl_pct": 70 / 1100 * 100,
-            "valued_count": 2,
-        }
-    ]
-
-
-def test_upsert_portfolio_holding_updates_an_existing_position(test_db):
-    """A later manual entry replaces the quantity and cost of the same holding."""
-    qs = QueryService(test_db)
-    qs.upsert_portfolio_holding("a_share", "600519", "贵州茅台", 10, 100.0)
-    qs.upsert_portfolio_holding("a_share", "600519", "贵州茅台", 12, 110.0)
-
-    valuation = qs.get_portfolio_valuation()
-
-    assert len(valuation["holdings"]) == 1
-    assert valuation["holdings"][0]["shares"] == 12
-    assert valuation["holdings"][0]["cost_price"] == 110.0
-
-
-def test_delete_portfolio_holding_removes_only_the_requested_position(test_db):
-    """Deletion is scoped to the same market and symbol as the requested holding."""
-    qs = QueryService(test_db)
-    qs.upsert_portfolio_holding("a_share", "600519", "贵州茅台", 10, 100.0)
-    qs.upsert_portfolio_holding("fund", "510300", "沪深300ETF", 100, 1.0)
-
-    deleted = qs.delete_portfolio_holding("a_share", "600519")
-    missing = qs.delete_portfolio_holding("a_share", "600519")
-
-    assert deleted is True
-    assert missing is False
-    assert [holding["symbol"] for holding in qs.get_portfolio_valuation()["holdings"]] == ["510300"]
+    assert qs.save_news("eastmoney", "600519", df2) == 1

@@ -1,4 +1,4 @@
-"""LLM client using api.aicoding.sh Messages API."""
+"""LLM client for Anthropic-style Messages API relays."""
 
 from __future__ import annotations
 
@@ -24,22 +24,21 @@ RETRYABLE_LLM_ERRORS = (
 
 
 class LLMClient:
-    """Calls the Messages API at api.aicoding.sh."""
+    """Calls the Messages API at the configured base_url."""
 
     def __init__(self, config: LLMConfig, cache: LLMCache | None = None):
         self.config = config
         self.url = config.base_url
         self.headers = {
-            "Authorization": config.api_key,
+            "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
         }
 
-    def chat(
-        self,
-        system_prompt: str,
-        user_message: str,
-        request_context: str = "unspecified",
-    ) -> str:
+    @property
+    def model(self) -> str:
+        return self.config.model
+
+    def chat(self, system_prompt: str, user_message: str) -> str:
         """Single-turn chat completion."""
         payload = {
             "model": self.config.model,

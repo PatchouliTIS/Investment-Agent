@@ -1,57 +1,52 @@
-"""Tests for daily and weekly report orchestration."""
+"""Tests for the report generator orchestration."""
 
-from src.analysis.base_analyst import AnalysisResult
-from src.analysis.report_generator import WEEKLY_WINDOW, ReportGenerator
-
-
-class FakeLLM:
-    model = "test-model"
+from src.analysis.llm_client import LLMClient
+from src.analysis.report_generator import ReportGenerator
 
 
-class RecordingAnalyst:
-    """Captures the report window passed to an analyst."""
+def test_daily_brief_structure(test_db, sample_config, mock_llm):
+    """Daily brief assembles per-symbol analyses plus portfolio advice."""
+    llm = LLMClient(sample_config.llm)
+    generator = ReportGenerator(llm, test_db, sample_config)
+    report = generator.generate_daily_brief()
 
-    def __init__(self, name):
-        self.name = name
-        self.calls = []
-
-    def analyze(self, symbol, market, **kwargs):
-        self.calls.append((symbol, market, kwargs))
-        return AnalysisResult(self.name, symbol, "测试分析", "neutral", 0.5)
-
-
-class FakePortfolioAdvisor:
-    def analyze_portfolio(self, individual_results, valuation):
-        return {"summary": "测试组合", "risk_level": "中", "allocation_suggestions": []}
+    assert report["type"] == "daily_brief"
+    assert "600519" in report["individual"]
+    assert "portfolio" in report
+    # With an empty DB, analysts return low-confidence fallbacks without LLM calls,
+    # and the portfolio advisor still synthesizes them via the mocked LLM.
+    mock_llm.assert_called_once()
 
 
-def test_weekly_report_uses_independent_long_horizon_windows(sample_config, test_db):
-    """Weekly generation dispatches long-horizon parameters without calling daily."""
-    generator = ReportGenerator(FakeLLM(), test_db, sample_config)
-    fundamental = RecordingAnalyst("fundamental")
-    technical = RecordingAnalyst("technical")
-    sentiment = RecordingAnalyst("sentiment")
-    fund = RecordingAnalyst("fund")
-    generator.analysts = [fundamental, technical, sentiment]
-    generator.fund_analyst = fund
-    generator.portfolio_advisor = FakePortfolioAdvisor()
-    generator.generate_daily_brief = lambda: (_ for _ in ()).throw(AssertionError("daily called"))
-
+def test_weekly_deep_structure(test_db, sample_config, mock_llm):
+    """Weekly deep report adds a recap section and persists to the DB."""
+    llm = LLMClient(sample_config.llm)
+    generator = ReportGenerator(llm, test_db, sample_config)
     report = generator.generate_weekly_deep()
 
     assert report["type"] == "weekly_deep"
-    assert report["analysis_window"] == {
-        "fundamental_history_days": 730,
-        "fundamental_recent_trading_days": 60,
-        "technical_history_days": 365,
-        "sentiment_days": 30,
-        "fund_history_days": 365,
-    }
-    assert fundamental.calls[0][2] == {
-        "history_days": WEEKLY_WINDOW.fundamental_history_days,
-        "recent_trading_days": WEEKLY_WINDOW.fundamental_recent_trading_days,
-    }
-    assert technical.calls[0][2] == {"history_days": WEEKLY_WINDOW.technical_history_days}
-    assert sentiment.calls[0][2] == {"news_days": WEEKLY_WINDOW.sentiment_days}
-    assert fund.calls[0][2] == {"history_days": WEEKLY_WINDOW.fund_history_days}
-    assert report["individual"]["510300"]["market"] == "fund"
+    assert "600519" in report["individual"]
+    assert "portfolio" in report
+    assert "weekly_recap" in report  # None when no prior daily briefs exist
+    assert report["weekly_recap"] is None
+
+
+def test_weekly_recap_uses_past_briefs(test_db, sample_config, mock_llm):
+    """Weekly recap summarizes previously saved daily briefs."""
+    from src.storage.queries import QueryService
+
+    queries = QueryService(test_db)
+    queries.save_analysis_report(
+        "daily_brief",
+        "portfolio",
+        {"date": "2026-10-21", "type": "daily_brief", "portfolio": {"summary": "昨日摘要"}},
+        "test-model",
+    )
+
+    llm = LLMClient(sample_config.llm)
+    generator = ReportGenerator(llm, test_db, sample_config)
+    report = generator.generate_weekly_deep()
+
+    # Recap calls the (mocked) LLM once for the portfolio advice and once for the recap
+    assert report["weekly_recap"] is not None
+    assert report["weekly_recap"]["summary"] == "测试分析"

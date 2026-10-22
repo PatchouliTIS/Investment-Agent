@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 import pandas as pd
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from loguru import logger
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -222,23 +223,42 @@ class QueryService:
 
     # --- News ---
 
-    def save_news(self, source: str, symbol: str | None, items: pd.DataFrame):
-        """Save news items."""
+    def save_news(self, source: str, symbol: str | None, items: pd.DataFrame) -> int:
+        """Save news items, skipping duplicates by (source, symbol, title).
+
+        Returns the number of newly inserted items.
+        """
         if items.empty:
-            return
+            return 0
         with self.db.get_session() as session:
+            query = session.query(NewsItem.title).filter(NewsItem.source == source)
+            if symbol is None:
+                query = query.filter(NewsItem.symbol.is_(None))
+            else:
+                query = query.filter(NewsItem.symbol == symbol)
+            existing_titles = {t for (t,) in query.all()}
+
+            added = 0
             for _, row in items.iterrows():
+                title = row.get("title", "") or ""
+                if title and title in existing_titles:
+                    continue
                 news = NewsItem(
                     source=source,
                     symbol=symbol,
-                    title=row.get("title", ""),
+                    title=title,
                     content=row.get("content", ""),
                     url=row.get("url", ""),
                     published_at=pd.to_datetime(row.get("published_at")) if row.get("published_at") else None,
                     fetched_at=shanghai_now(),
                 )
                 session.add(news)
+                if title:
+                    existing_titles.add(title)
+                added += 1
             session.commit()
+            logger.debug(f"Saved {added} news items for {source}/{symbol} ({len(items) - added} duplicates skipped)")
+            return added
 
     def get_recent_news(self, symbol: str, days: int = 7) -> list[dict]:
         """Get recent news for a symbol."""
@@ -274,178 +294,31 @@ class QueryService:
             session.add(report)
             session.commit()
 
-    # --- Alerts ---
-
-    def save_alert_if_new(
-        self, symbol: str, alert_type: str, alert_date: date, message: str
-    ) -> bool:
-        """Persist an alert once per symbol/type/trading day.
-
-        Returns ``True`` only when the alert was newly recorded and should be sent.
-        """
+    def get_recent_reports(self, report_type: str, limit: int = 5) -> list[dict]:
+        """Get the most recent analysis reports of a type, newest first."""
         with self.db.get_session() as session:
-            stmt = sqlite_insert(AlertEvent).values(
-                symbol=symbol,
-                alert_type=alert_type,
-                date=alert_date,
-                message=message,
-                created_at=shanghai_now(),
-            ).on_conflict_do_nothing(
-                index_elements=["symbol", "alert_type", "date"]
+            results = (
+                session.query(AnalysisReport)
+                .filter(AnalysisReport.report_type == report_type)
+                .order_by(AnalysisReport.created_at.desc())
+                .limit(limit)
+                .all()
             )
-            result = session.execute(stmt)
-            session.commit()
-            return result.rowcount > 0
+            return [json.loads(r.content_json) for r in results]
 
-    # --- Portfolio Holdings and Valuation ---
+    # --- Portfolio ---
 
-    def upsert_portfolio_holding(
-        self,
-        market: str,
-        symbol: str,
-        name: str,
-        shares: float,
-        cost_price: float,
-    ) -> None:
-        """Create or update a manually maintained holding."""
-        if market not in {"a_share", "fund", "hk", "us"}:
-            raise ValueError(f"Unsupported holding market: {market}")
-        if shares < 0:
-            raise ValueError("Holding shares cannot be negative")
-        if cost_price < 0:
-            raise ValueError("Holding cost price cannot be negative")
-
+    def get_portfolio(self) -> list[dict]:
+        """Get current portfolio holdings."""
         with self.db.get_session() as session:
-            stmt = sqlite_insert(Portfolio).values(
-                market=market,
-                symbol=symbol,
-                name=name,
-                shares=shares,
-                cost_price=cost_price,
-                updated_at=shanghai_now(),
-            ).on_conflict_do_update(
-                index_elements=["market", "symbol"],
-                set_={
-                    "name": name,
-                    "shares": shares,
-                    "cost_price": cost_price,
-                    "updated_at": shanghai_now(),
-                },
-            )
-            session.execute(stmt)
-            session.commit()
-
-    def delete_portfolio_holding(self, market: str, symbol: str) -> bool:
-        """Delete one holding identified by its market and symbol."""
-        with self.db.get_session() as session:
-            deleted_count = (
-                session.query(Portfolio)
-                .filter(Portfolio.market == market, Portfolio.symbol == symbol)
-                .delete(synchronize_session=False)
-            )
-            session.commit()
-            return deleted_count > 0
-
-    def get_portfolio_valuation(self) -> dict:
-        """Value all holdings using the latest locally synchronized prices.
-
-        Values are grouped by currency because CNY, HKD, and USD must not be
-        summed without an explicit foreign-exchange conversion source.
-        """
-        with self.db.get_session() as session:
-            holdings = session.query(Portfolio).order_by(Portfolio.market, Portfolio.symbol).all()
-            valued_holdings = [self._value_holding(session, holding) for holding in holdings]
-
-        totals: dict[str, dict] = defaultdict(
-            lambda: {
-                "market_value": 0.0,
-                "cost_value": 0.0,
-                "unrealized_pnl": 0.0,
-                "valued_count": 0,
-            }
-        )
-        unvalued_count = 0
-        for holding in valued_holdings:
-            if holding["market_value"] is None:
-                unvalued_count += 1
-                continue
-
-            total = totals[holding["currency"]]
-            total["market_value"] += holding["market_value"]
-            total["cost_value"] += holding["cost_value"]
-            total["unrealized_pnl"] += holding["unrealized_pnl"]
-            total["valued_count"] += 1
-
-        by_currency = []
-        for currency, total in sorted(totals.items()):
-            total["currency"] = currency
-            total["unrealized_pnl_pct"] = (
-                total["unrealized_pnl"] / total["cost_value"] * 100
-                if total["cost_value"]
-                else None
-            )
-            by_currency.append(total)
-
-        return {
-            "holdings": valued_holdings,
-            "by_currency": by_currency,
-            "unvalued_count": unvalued_count,
-        }
-
-    @staticmethod
-    def _market_currency(market: str) -> str:
-        return {"a_share": "CNY", "fund": "CNY", "hk": "HKD", "us": "USD"}[market]
-
-    def _value_holding(self, session, holding: Portfolio) -> dict:
-        """Return a holding enriched with its latest local market price."""
-        if holding.market == "fund":
-            latest = (
-                session.query(FundNav.nav, FundNav.date)
-                .filter(FundNav.fund_code == holding.symbol)
-                .order_by(FundNav.date.desc())
-                .first()
-            )
-        else:
-            latest = (
-                session.query(StockQuote.close, StockQuote.date)
-                .filter(StockQuote.market == holding.market, StockQuote.symbol == holding.symbol)
-                .order_by(StockQuote.date.desc())
-                .first()
-            )
-
-        shares = float(holding.shares or 0)
-        cost_price = float(holding.cost_price or 0)
-        valuation = {
-            "market": holding.market,
-            "symbol": holding.symbol,
-            "name": holding.name or holding.symbol,
-            "shares": shares,
-            "cost_price": cost_price,
-            "currency": self._market_currency(holding.market),
-            "latest_price": None,
-            "price_date": None,
-            "cost_value": shares * cost_price,
-            "market_value": None,
-            "unrealized_pnl": None,
-            "unrealized_pnl_pct": None,
-        }
-        if latest is None or latest[0] is None:
-            return valuation
-
-        latest_price, price_date = latest
-        market_value = shares * float(latest_price)
-        unrealized_pnl = market_value - valuation["cost_value"]
-        valuation.update(
-            {
-                "latest_price": float(latest_price),
-                "price_date": price_date.isoformat(),
-                "market_value": market_value,
-                "unrealized_pnl": unrealized_pnl,
-                "unrealized_pnl_pct": (
-                    unrealized_pnl / valuation["cost_value"] * 100
-                    if valuation["cost_value"]
-                    else None
-                ),
-            }
-        )
-        return valuation
+            results = session.query(Portfolio).all()
+            return [
+                {
+                    "market": r.market,
+                    "symbol": r.symbol,
+                    "name": r.name,
+                    "shares": r.shares,
+                    "cost_price": r.cost_price,
+                }
+                for r in results
+            ]

@@ -175,6 +175,35 @@
   </div>
   {% endif %}
 
+  {% if report.weekly_recap %}
+  <div class="section">
+    <h2>本周回顾与下周展望</h2>
+    <div class="portfolio-box">
+      <p class="summary">{{ report.weekly_recap.week_summary }}</p>
+      {% if report.weekly_recap.key_changes %}
+      <div style="margin-top:12px;">
+        <strong>本周观点变化:</strong>
+        <ul>
+          {% for change in report.weekly_recap.key_changes %}
+          <li>{{ change }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {% if report.weekly_recap.next_week_focus %}
+      <div style="margin-top:12px;">
+        <strong>下周关注:</strong>
+        <ul>
+          {% for focus in report.weekly_recap.next_week_focus %}
+          <li style="color:#6a1b9a;">{{ focus }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="footer">
     <p>Investment Agent 周报 - 仅供参考，不构成投资建议</p>
     <p>数据来源: AKShare | AI深度分析仅供决策参考</p>

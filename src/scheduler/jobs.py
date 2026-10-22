@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
+import pandas as pd
 from loguru import logger
 
-from src.analysis.llm_cache import LLMCache
+from src.config import AppConfig
+from src.data.a_share import AShareFetcher
+from src.data.sync import DataSyncService
 from src.analysis.llm_client import LLMClient
 from src.analysis.report_generator import ReportGenerator
 from src.config import AppConfig
@@ -74,58 +77,61 @@ def job_weekly_report(config: AppConfig, db: Database):
 
 
 def job_check_alerts(config: AppConfig, db: Database):
-    """Check end-of-day price/volume anomalies and send only new alerts."""
+    """Check for price/volume anomalies using real-time quotes and send alerts."""
     if not is_trading_day():
         return
 
+    symbols = config.watchlist.a_shares
+    if not symbols:
+        return
+
     logger.info("Checking alerts...")
+    try:
+        spot = AShareFetcher().fetch_latest(symbols)
+    except Exception as e:
+        logger.error(f"Failed to fetch real-time quotes: {e}")
+        return
+    if spot.empty:
+        logger.warning("No real-time quotes available, skipping alert check.")
+        return
+
     queries = QueryService(db)
     alerts = []
 
-    for symbol in config.watchlist.a_shares:
-        end = shanghai_today()
-        start = end - timedelta(days=30)
-        df = queries.get_quotes("a_share", symbol, start, end)
-        if df.empty or len(df) < 2:
+    for symbol in symbols:
+        rows = spot[spot["symbol"] == symbol]
+        if rows.empty:
             continue
+        latest = rows.iloc[0]
+        change_pct = latest.get("change_pct")
+        price = latest.get("close")
 
-        latest = df.iloc[-1]
+        # Price change alert (intraday, real-time)
+        if pd.notna(change_pct) and abs(change_pct) >= config.alerts.price_change_threshold:
+            direction = "大涨" if change_pct > 0 else "大跌"
+            alerts.append({
+                "symbol": symbol,
+                "alert_type": f"价格异动 - {direction}",
+                "message": f"实时涨跌幅 {change_pct:.2f}%，超过阈值 {config.alerts.price_change_threshold}%",
+                "current_value": f"¥{price:.2f}" if pd.notna(price) else "-",
+            })
 
-        # Daily data is synchronized after market close, so these alerts run after
-        # the sync job rather than repeatedly evaluating stale daily bars intraday.
-        if abs(latest["change_pct"] or 0) >= config.alerts.price_change_threshold:
-            direction = "大涨" if latest["change_pct"] > 0 else "大跌"
-            alert_type = f"价格异动 - {direction}"
-            message = (
-                f"涨跌幅 {latest['change_pct']:.2f}%，"
-                f"超过阈值 {config.alerts.price_change_threshold}%"
-            )
-            if queries.save_alert_if_new(symbol, alert_type, latest["date"], message):
-                alerts.append({
-                    "symbol": symbol,
-                    "alert_type": alert_type,
-                    "message": message,
-                    "current_value": f"¥{latest['close']:.2f}",
-                })
-
-        # Volume spike alert
+        # Volume spike alert: real-time volume vs 20-day average from daily bars
+        end = date.today()
+        start = end - timedelta(days=45)
+        df = queries.get_quotes("a_share", symbol, start, end)
         if len(df) >= 20:
-            avg_volume = df["volume"].iloc[-21:-1].mean()
-            if avg_volume > 0:
-                volume_ratio = latest["volume"] / avg_volume
+            avg_volume = df["volume"].iloc[-20:].mean()
+            volume = latest.get("volume")
+            if pd.notna(volume) and avg_volume > 0:
+                volume_ratio = volume / avg_volume
                 if volume_ratio >= config.alerts.volume_spike_threshold:
-                    alert_type = "成交量异常放大"
-                    message = (
-                        f"成交量为20日均量的 {volume_ratio:.1f} 倍，"
-                        f"超过阈值 {config.alerts.volume_spike_threshold}x"
-                    )
-                    if queries.save_alert_if_new(symbol, alert_type, latest["date"], message):
-                        alerts.append({
-                            "symbol": symbol,
-                            "alert_type": alert_type,
-                            "message": message,
-                            "current_value": f"成交量 {latest['volume']:,.0f}",
-                        })
+                    alerts.append({
+                        "symbol": symbol,
+                        "alert_type": "成交量异常放大",
+                        "message": f"实时成交量为20日均量的 {volume_ratio:.1f} 倍，超过阈值 {config.alerts.volume_spike_threshold}x",
+                        "current_value": f"成交量 {volume:,.0f}",
+                    })
 
     if alerts:
         logger.warning(f"Found {len(alerts)} alerts!")
