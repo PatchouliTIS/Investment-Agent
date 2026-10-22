@@ -45,10 +45,10 @@ class TechnicalAnalyst(BaseAnalyst):
         self.queries = QueryService(db)
 
     def analyze(
-        self, symbol: str, market: str = "a_share", lookback_days: int = 300
+        self, symbol: str, market: str = "a_share", history_days: int = 300
     ) -> AnalysisResult:
-        end = date.today()
-        start = end - timedelta(days=lookback_days)
+        end = shanghai_today()
+        start = end - timedelta(days=history_days)
         df = self.queries.get_quotes(market, symbol, start, end)
 
         if df.empty or len(df) < 20:

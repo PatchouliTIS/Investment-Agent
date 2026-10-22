@@ -297,6 +297,32 @@ class AkshareDataClient:
         }
         return report_date, data
 
+    def fetch_latest(self, symbols: list[str]) -> pd.DataFrame:
+        """Fetch a real-time A-share spot snapshot (Sina full-market).
+
+        Returns one row per requested symbol with columns
+        ``symbol`` (bare 6-digit code), ``name``, ``close``, ``change_pct``,
+        ``volume`` (手), ``turnover`` (元). Volume is normalized from 股 to 手
+        to match the stored daily-bar convention.
+        """
+        raw = self._call("a_share_spot_sina", self.api.stock_zh_a_spot)
+        if raw.empty:
+            return pd.DataFrame(
+                columns=["symbol", "name", "close", "change_pct", "volume", "turnover"]
+            )
+
+        spot = pd.DataFrame(
+            {
+                "symbol": self._column(raw, ["代码", "symbol"]).astype(str).str[2:],
+                "name": self._column(raw, ["名称", "name"]),
+                "close": self._numeric(self._column(raw, ["最新价", "close"])),
+                "change_pct": self._numeric(self._column(raw, ["涨跌幅", "change_pct"])),
+                "volume": self._numeric(self._column(raw, ["成交量", "volume"])) / 100,
+                "turnover": self._numeric(self._column(raw, ["成交额", "turnover"])),
+            }
+        )
+        return spot[spot["symbol"].isin(symbols)].reset_index(drop=True)
+
     def fetch_news(self, symbol: str) -> pd.DataFrame:
         """Fetch recent company news in the application's common shape."""
         raw = self._call("stock_news", self.api.stock_news_em, symbol=symbol)

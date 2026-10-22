@@ -8,12 +8,11 @@ import pandas as pd
 from loguru import logger
 
 from src.config import AppConfig
-from src.data.a_share import AShareFetcher
+from src.data.akshare_client import AkshareDataClient
 from src.data.sync import DataSyncService
+from src.analysis.llm_cache import LLMCache
 from src.analysis.llm_client import LLMClient
 from src.analysis.report_generator import ReportGenerator
-from src.config import AppConfig
-from src.data.sync import DataSyncService
 from src.notify.email_sender import EmailSender
 from src.notify.local_report import save_report
 from src.storage.database import Database
@@ -87,7 +86,7 @@ def job_check_alerts(config: AppConfig, db: Database):
 
     logger.info("Checking alerts...")
     try:
-        spot = AShareFetcher().fetch_latest(symbols)
+        spot = AkshareDataClient().fetch_latest(symbols)
     except Exception as e:
         logger.error(f"Failed to fetch real-time quotes: {e}")
         return

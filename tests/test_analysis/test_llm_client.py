@@ -1,14 +1,9 @@
 """Tests for the LLM client."""
 
-from types import SimpleNamespace
 
-import pytest
-from loguru import logger
 
-from src.analysis import llm_client
 from src.analysis.llm_client import LLMClient
 from src.config import LLMConfig
-from src.utils.logging_config import setup_logging
 
 
 def test_parse_json_simple():
@@ -42,12 +37,13 @@ def test_parse_json_invalid():
 
 
 def test_client_init():
-    """Test client initializes with correct URL and headers."""
+    """Client builds the litellm model string from provider and model."""
     config = LLMConfig(
+        provider="anthropic",
         model="claude-opus-4-6",
         api_key="aicoding-test-key",
-        base_url="https://wawapii.com/v1/messages",
+        base_url="https://wawapii.com",
     )
     client = LLMClient(config)
-    assert client.url == "https://wawapii.com/v1/messages"
-    assert client.headers["Authorization"] == "Bearer aicoding-test-key"
+    assert client.model == "anthropic/claude-opus-4-6"
+    assert client.config.base_url == "https://wawapii.com"

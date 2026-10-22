@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -19,9 +19,10 @@ class WatchlistConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
+    provider: str = "anthropic"  # litellm provider prefix; anthropic appends /messages to base_url
     model: str = "claude-opus-4-6"
     api_key: Optional[str] = None
-    base_url: str = "https://wawapii.com/v1/messages"
+    base_url: str = "https://wawapii.com"
     temperature: float = 0.3
     max_tokens: int = 4096
     output_format: Literal["json", "text"] = "json"
@@ -103,15 +104,6 @@ class DatabaseConfig(BaseModel):
     path: str = "data/investment.db"
 
 
-class ProfileConfig(BaseModel):
-    """User's financial profile, injected into the portfolio advisor prompt."""
-
-    monthly_income: float = 40000.0  # 税前月收入（元）
-    available_cash: float = 200000.0  # 可支配资金（元）
-    fund_assets: float = 300000.0  # 基金资产（元）
-    risk_preference: str = "中等"  # 风险偏好：低/中等/高
-
-
 class AppConfig(BaseModel):
     watchlist: WatchlistConfig = WatchlistConfig()
     llm: LLMConfig = LLMConfig()
@@ -123,7 +115,6 @@ class AppConfig(BaseModel):
     akshare: AkshareConfig = AkshareConfig()
     investor_profile: InvestorProfileConfig = InvestorProfileConfig()
     database: DatabaseConfig = DatabaseConfig()
-    profile: ProfileConfig = ProfileConfig()
     log_level: str = "INFO"
 
 

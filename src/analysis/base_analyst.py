@@ -32,5 +32,5 @@ class BaseAnalyst(ABC):
         ...
 
     @abstractmethod
-    def analyze(self, symbol: str, market: str = "a_share", **kwargs) -> AnalysisResult:
+    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
         ...

@@ -6,12 +6,13 @@ from loguru import logger
 
 from src.analysis.base_analyst import AnalysisResult
 from src.analysis.llm_client import LLMClient
-from src.config import ProfileConfig
+from src.config import InvestorProfileConfig
 
 SYSTEM_PROMPT = """你是一位专业的投资组合顾问。
 
-SYSTEM_PROMPT_TEMPLATE = """你是一位专业的投资组合顾问。用户背景：
-{profile_text}
+输入分为两部分，请严格区分：
+- **实际持仓**：用户当前真实持有的标的，附带份额、成本、最新价与浮动盈亏。
+- **候选观察标的**：用户尚未买入、仅在观察池中的标的。
 
 分析要求：
 1. **持仓优先**：必须为每一个实际持仓给出明确操作建议，这是本次分析的核心。
@@ -21,16 +22,25 @@ SYSTEM_PROMPT_TEMPLATE = """你是一位专业的投资组合顾问。用户背�
 5. **无持仓时**：若实际持仓为空，明确说明这一点，再从候选标的中给出建仓思路。
 
 请用JSON格式返回：
-{{
-    "summary": "一段话总结组合状况",
+{
+    "summary": "一段话总结组合状况，需点明持仓整体盈亏情况",
     "risk_level": "低/中/高",
-    "allocation_suggestions": [
-        {{"symbol": "代码", "market": "市场", "action": "持有/加仓/减仓/观望", "reason": "理由"}}
+    "holdings_advice": [
+        {
+            "symbol": "代码",
+            "market": "市场",
+            "action": "持有/加仓/减仓/清仓/观望",
+            "target_weight_pct": 0.0到100.0,
+            "reason": "结合成本与浮动盈亏的理由"
+        }
+    ],
+    "candidate_suggestions": [
+        {"symbol": "代码", "market": "市场", "action": "建仓/观望", "reason": "理由"}
     ],
     "diversification_score": 0.0到1.0,
     "key_risks": ["组合风险1"],
-    "monthly_investment_plan": "定投建议（结合用户月收入）"
-}}"""
+    "monthly_investment_plan": "定投建议"
+}"""
 
 EMPTY_RESULT = {
     "summary": "无分析数据",
@@ -45,25 +55,20 @@ class PortfolioAdvisor:
 
     name = "portfolio_advisor"
 
-    def __init__(self, llm: LLMClient, profile: ProfileConfig | None = None):
+    def __init__(self, llm: LLMClient, profile: InvestorProfileConfig | None = None):
         self.llm = llm
-        self.profile = profile or ProfileConfig()
-
-    def _profile_text(self) -> str:
-        p = self.profile
-        return (
-            f"月收入约{p.monthly_income / 10000:.1f}万元人民币（税前），"
-            f"可支配资金约{p.available_cash / 10000:.0f}万元，"
-            f"基金资产约{p.fund_assets / 10000:.0f}万元，"
-            f"风险偏好{p.risk_preference}。"
-        )
+        self.profile = profile or InvestorProfileConfig()
 
     def analyze_portfolio(
-        self,
-        individual_results: list[AnalysisResult],
-        holdings: list[dict] | None = None,
+        self, individual_results: list[AnalysisResult], valuation: dict | None = None
     ) -> dict:
-        """Synthesize individual analyses into portfolio-level advice."""
+        """Synthesize individual analyses into portfolio-level advice.
+
+        Analyses are split into held positions and watchlist candidates so the
+        model is told which symbols the user actually owns. Matching is by
+        symbol alone: a holding whose ``market`` was recorded incorrectly still
+        pairs with its analysis.
+        """
         if not individual_results:
             return dict(EMPTY_RESULT)
 
@@ -84,23 +89,16 @@ class PortfolioAdvisor:
                 "持仓标的分析结果：\n持仓标的不在本次分析范围内，"
                 "请提示用户将其加入 watchlist 后重新生成报告。"
             )
-
-        sections = ["以下是各个股的分析结果，请给出组合投资建议：\n\n" + "\n".join(summaries)]
-        if holdings:
-            holding_lines = [
-                f"- {h.get('name') or h['symbol']} ({h['market']}/{h['symbol']}): "
-                f"{h.get('shares')}股, 成本价{h.get('cost_price')}"
-                for h in holdings
-            ]
-            sections.append("当前持仓：\n" + "\n".join(holding_lines))
-        user_message = "\n\n".join(sections)
+        if candidate_results:
+            sections.append(self._analysis_section("候选观察标的分析结果：", candidate_results))
 
         try:
             return self.llm.chat_json(
-                SYSTEM_PROMPT_TEMPLATE.format(profile_text=self._profile_text()),
-                user_message,
+                SYSTEM_PROMPT,
+                "\n\n".join(sections),
+                request_context=self.name,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Portfolio analysis failed: {e}")
             return {"summary": f"组合分析失败: {e}", "risk_level": "未知"}
 
