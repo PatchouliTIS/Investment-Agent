@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 from loguru import logger
 
@@ -10,7 +11,7 @@ from src.analysis.base_analyst import AnalysisResult, BaseAnalyst
 from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
-
+from src.utils.chinese_calendar import shanghai_today
 
 SYSTEM_PROMPT = """你是一位专业的股票基本面分析师。根据提供的财务数据和近期行情，分析公司的基本面状况。
 
@@ -40,13 +41,18 @@ class FundamentalAnalyst(BaseAnalyst):
         super().__init__(llm, db)
         self.queries = QueryService(db)
 
-    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
+    def analyze(
+        self,
+        symbol: str,
+        market: str = "a_share",
+        history_days: int = 365,
+        recent_trading_days: int = 20,
+    ) -> AnalysisResult:
         # Gather data
         financials = self.queries.get_latest_financial_report(symbol)
-        from datetime import date, timedelta
 
-        end = date.today()
-        start = end - timedelta(days=365)
+        end = shanghai_today()
+        start = end - timedelta(days=history_days)
         quotes = self.queries.get_quotes(market, symbol, start, end)
 
         # Build prompt with available data
@@ -54,14 +60,14 @@ class FundamentalAnalyst(BaseAnalyst):
         if financials:
             data_parts.append(f"财务指标数据:\n{json.dumps(financials, ensure_ascii=False, indent=2)}")
         if not quotes.empty:
-            recent = quotes.tail(20)
+            recent = quotes.tail(recent_trading_days)
             data_parts.append(
-                f"近20个交易日行情:\n"
+                f"近{len(recent)}个交易日行情:\n"
                 f"最新价: {recent['close'].iloc[-1]}\n"
-                f"20日最高: {recent['high'].max()}\n"
-                f"20日最低: {recent['low'].min()}\n"
-                f"20日涨跌幅: {((recent['close'].iloc[-1] / recent['close'].iloc[0]) - 1) * 100:.2f}%\n"
-                f"20日均成交额: {recent['turnover'].mean():,.0f}"
+                f"区间最高: {recent['high'].max()}\n"
+                f"区间最低: {recent['low'].min()}\n"
+                f"区间涨跌幅: {((recent['close'].iloc[-1] / recent['close'].iloc[0]) - 1) * 100:.2f}%\n"
+                f"区间日均成交额: {recent['turnover'].mean():,.0f}"
             )
 
         if not data_parts:
@@ -76,7 +82,11 @@ class FundamentalAnalyst(BaseAnalyst):
         user_message = f"请分析股票 {symbol} 的基本面：\n\n" + "\n\n".join(data_parts)
 
         try:
-            result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
+            result = self.llm.chat_json(
+                SYSTEM_PROMPT,
+                user_message,
+                request_context=f"{self.name}:{market}/{symbol}",
+            )
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,
@@ -86,7 +96,7 @@ class FundamentalAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Fundamental analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,

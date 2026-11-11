@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import smtplib
-from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -12,7 +11,7 @@ from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
 from src.config import EmailConfig
-
+from src.utils.chinese_calendar import shanghai_today
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -27,8 +26,8 @@ class EmailSender:
             autoescape=True,
         )
 
-    def send_report(self, report: dict, template_name: str):
-        """Render a report with a template and send it via email."""
+    def render_report(self, report: dict, template_name: str) -> tuple[str, str]:
+        """Render a report to ``(subject, html)`` without sending anything."""
         template = self.jinja_env.get_template(template_name)
         html_content = template.render(report=report)
 
@@ -38,8 +37,16 @@ class EmailSender:
             "weekly_deep": "投资周报",
             "alert": "投资告警",
         }
-        subject = f"{type_labels.get(report_type, '投资报告')} - {report.get('date', date.today())}"
+        subject = f"{type_labels.get(report_type, '投资报告')} - {report.get('date', shanghai_today())}"
+        return subject, html_content
 
+    def send_rendered(self, subject: str, html_content: str):
+        """Send an already-rendered report, avoiding a second template pass."""
+        self._send_html(subject, html_content)
+
+    def send_report(self, report: dict, template_name: str):
+        """Render a report with a template and send it via email."""
+        subject, html_content = self.render_report(report, template_name)
         self._send_html(subject, html_content)
 
     def send_alert(self, alert_data: dict):
@@ -48,13 +55,13 @@ class EmailSender:
 
     def send_test(self):
         """Send a test email to verify SMTP configuration."""
-        html = """
+        html = f"""
         <html><body>
         <h2>Investment Agent - 邮件测试</h2>
         <p>如果你收到这封邮件，说明邮件配置正确。</p>
-        <p>发送时间: {}</p>
+        <p>发送时间: {shanghai_today()}</p>
         </body></html>
-        """.format(date.today())
+        """
         self._send_html("Investment Agent 邮件测试", html)
 
     def _send_html(self, subject: str, html_content: str):

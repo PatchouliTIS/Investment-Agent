@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 from loguru import logger
@@ -12,7 +12,7 @@ from src.analysis.base_analyst import AnalysisResult, BaseAnalyst
 from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
-
+from src.utils.chinese_calendar import shanghai_today
 
 SYSTEM_PROMPT = """你是一位专业的技术分析师。根据提供的技术指标数据，判断当前的技术面走势。
 
@@ -44,9 +44,11 @@ class TechnicalAnalyst(BaseAnalyst):
         super().__init__(llm, db)
         self.queries = QueryService(db)
 
-    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
-        end = date.today()
-        start = end - timedelta(days=300)  # ~1 year of trading days
+    def analyze(
+        self, symbol: str, market: str = "a_share", history_days: int = 300
+    ) -> AnalysisResult:
+        end = shanghai_today()
+        start = end - timedelta(days=history_days)
         df = self.queries.get_quotes(market, symbol, start, end)
 
         if df.empty or len(df) < 20:
@@ -64,7 +66,11 @@ class TechnicalAnalyst(BaseAnalyst):
         )
 
         try:
-            result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
+            result = self.llm.chat_json(
+                SYSTEM_PROMPT,
+                user_message,
+                request_context=f"{self.name}:{market}/{symbol}",
+            )
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,
@@ -74,7 +80,7 @@ class TechnicalAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Technical analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,
@@ -115,15 +121,11 @@ class TechnicalAnalyst(BaseAnalyst):
         if vol_ma20 > 0:
             indicators["volume_ratio"] = round(float(volume.iloc[-1] / vol_ma20), 2)
 
-        # Recent performance
-        if len(df) >= 5:
-            indicators["5d_change_pct"] = round(
-                float((close.iloc[-1] / close.iloc[-5] - 1) * 100), 2
-            )
-        if len(df) >= 20:
-            indicators["20d_change_pct"] = round(
-                float((close.iloc[-1] / close.iloc[-20] - 1) * 100), 2
-            )
+        # Recent performance (N-day return spans N trading intervals)
+        if len(df) >= 6:
+            indicators["5d_change_pct"] = round(float(close.pct_change(5).iloc[-1] * 100), 2)
+        if len(df) >= 21:
+            indicators["20d_change_pct"] = round(float(close.pct_change(20).iloc[-1] * 100), 2)
 
         # 52-week high/low (approx 250 trading days)
         lookback = min(len(df), 250)

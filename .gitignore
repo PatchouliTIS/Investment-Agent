@@ -23,8 +23,8 @@ env/
 config/config.yaml
 .env
 
-# Runtime data
-data/
+# Runtime data (repo root only; must not shadow src/data/)
+/data/
 *.db
 
 # Logs
@@ -33,3 +33,6 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+*.pptx
+*.ppt

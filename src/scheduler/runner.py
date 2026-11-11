@@ -58,18 +58,14 @@ class SchedulerRunner:
             misfire_grace_time=7200,
         )
 
-        # Alert checking during trading hours (every 30 min, 9:30-15:00 weekdays)
+        # Alert checking after the end-of-day data synchronization.
         self.scheduler.add_job(
             job_check_alerts,
-            CronTrigger(
-                day_of_week="mon-fri",
-                hour="9-14",
-                minute="0,30",
-            ),
+            CronTrigger.from_crontab(self.config.schedule.alert_check_cron),
             args=[self.config, self.db],
             id="check_alerts",
-            name="Alert Check",
-            misfire_grace_time=600,
+            name="End-of-Day Alert Check",
+            misfire_grace_time=1800,
         )
 
         logger.info("Scheduled jobs registered:")

@@ -1,6 +1,6 @@
 """Tests for configuration loading."""
 
-from src.config import AppConfig, WatchlistConfig, LLMConfig
+from src.config import AppConfig, LLMConfig, WatchlistConfig
 
 
 def test_default_config():
@@ -8,7 +8,8 @@ def test_default_config():
     config = AppConfig()
     assert config.log_level == "INFO"
     assert config.database.path == "data/investment.db"
-    assert config.llm.provider == "openai"
+    assert config.llm.model == "claude-opus-4-6"
+    assert config.llm.base_url == "https://wawapii.com"
 
 
 def test_watchlist_config():
@@ -26,6 +27,7 @@ def test_watchlist_config():
 def test_llm_config():
     """Test LLM config defaults."""
     llm = LLMConfig()
-    assert llm.provider == "openai"
+    assert llm.model == "claude-opus-4-6"
+    assert llm.base_url == "https://wawapii.com"
     assert llm.temperature == 0.3
     assert llm.max_tokens == 4096

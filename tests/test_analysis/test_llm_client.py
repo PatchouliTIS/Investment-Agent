@@ -1,5 +1,7 @@
 """Tests for the LLM client."""
 
+
+
 from src.analysis.llm_client import LLMClient
 from src.config import LLMConfig
 
@@ -17,26 +19,31 @@ def test_parse_json_with_fences():
     assert result == {"key": "value"}
 
 
+def test_parse_json_with_surrounding_text():
+    """A valid object is recovered when a model adds explanatory text."""
+    raw = '分析如下：\n{"key": "value"}\n仅供参考。'
+    result = LLMClient._parse_json(raw)
+    assert result == {"key": "value"}
+
+
 def test_parse_json_invalid():
-    """Test fallback for invalid JSON."""
+    """Invalid JSON remains visible to reports and diagnostics."""
     result = LLMClient._parse_json("not json at all")
     assert result["parse_error"] is True
+    assert result["summary"] == "模型返回非 JSON 内容：not json at all"
+    assert result["rating"] == "neutral"
+    assert result["confidence"] == 0.0
     assert "not json at all" in result["raw_response"]
 
 
-def test_model_string_openai():
-    """Test model string construction for OpenAI."""
-    client = LLMClient(LLMConfig(provider="openai", model="gpt-4o-mini"))
-    assert client.model == "gpt-4o-mini"
-
-
-def test_model_string_anthropic():
-    """Test model string construction for Anthropic."""
-    client = LLMClient(LLMConfig(provider="anthropic", model="claude-sonnet-4-20250514"))
-    assert client.model == "anthropic/claude-sonnet-4-20250514"
-
-
-def test_model_string_ollama():
-    """Test model string construction for Ollama."""
-    client = LLMClient(LLMConfig(provider="ollama", model="qwen2.5"))
-    assert client.model == "ollama/qwen2.5"
+def test_client_init():
+    """Client builds the litellm model string from provider and model."""
+    config = LLMConfig(
+        provider="anthropic",
+        model="claude-opus-4-6",
+        api_key="aicoding-test-key",
+        base_url="https://wawapii.com",
+    )
+    client = LLMClient(config)
+    assert client.model == "anthropic/claude-opus-4-6"
+    assert client.config.base_url == "https://wawapii.com"

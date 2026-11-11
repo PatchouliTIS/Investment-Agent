@@ -11,7 +11,6 @@ from src.analysis.llm_client import LLMClient
 from src.storage.database import Database
 from src.storage.queries import QueryService
 
-
 SYSTEM_PROMPT = """你是一位专业的市场舆情分析师。根据提供的相关新闻，分析市场情绪和舆论导向。
 
 请从以下维度分析：
@@ -41,14 +40,16 @@ class SentimentAnalyst(BaseAnalyst):
         super().__init__(llm, db)
         self.queries = QueryService(db)
 
-    def analyze(self, symbol: str, market: str = "a_share") -> AnalysisResult:
-        news_items = self.queries.get_recent_news(symbol, days=7)
+    def analyze(
+        self, symbol: str, market: str = "a_share", news_days: int = 7
+    ) -> AnalysisResult:
+        news_items = self.queries.get_recent_news(symbol, days=news_days)
 
         if not news_items:
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,
-                summary="近7天无相关新闻",
+                summary=f"近{news_days}天无相关新闻",
                 rating="neutral",
                 confidence=0.3,
             )
@@ -62,7 +63,11 @@ class SentimentAnalyst(BaseAnalyst):
         user_message = f"请分析股票 {symbol} 的近期舆情：\n\n{news_text}"
 
         try:
-            result = self.llm.chat_json(SYSTEM_PROMPT, user_message)
+            result = self.llm.chat_json(
+                SYSTEM_PROMPT,
+                user_message,
+                request_context=f"{self.name}:{market}/{symbol}",
+            )
             return AnalysisResult(
                 analyst_name=self.name,
                 symbol=symbol,
@@ -72,7 +77,7 @@ class SentimentAnalyst(BaseAnalyst):
                 details=result,
                 raw_llm_response=json.dumps(result, ensure_ascii=False),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Sentiment analysis failed for {symbol}: {e}")
             return AnalysisResult(
                 analyst_name=self.name,

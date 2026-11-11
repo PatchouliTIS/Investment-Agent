@@ -4,7 +4,6 @@ from datetime import date
 
 import pandas as pd
 
-from src.storage.models import StockQuote
 from src.storage.queries import QueryService
 
 
@@ -19,6 +18,7 @@ def test_create_tables(test_db):
     assert "financial_reports" in table_names
     assert "news" in table_names
     assert "analysis_reports" in table_names
+    assert "alert_events" in table_names
     assert "portfolio" in table_names
 
 
@@ -69,3 +69,28 @@ def test_upsert_idempotent(test_db):
 
     result = qs.get_quotes("a_share", "600519", date(2026, 3, 1), date(2026, 3, 1))
     assert len(result) == 1
+
+
+def test_save_news_dedup(test_db):
+    """Test that saving the same news twice doesn't create duplicates."""
+    qs = QueryService(test_db)
+
+    df = pd.DataFrame(
+        [
+            {"title": "新闻A", "content": "内容A", "url": "http://a", "published_at": "2026-03-01 10:00:00"},
+            {"title": "新闻B", "content": "内容B", "url": "http://b", "published_at": "2026-03-01 11:00:00"},
+        ]
+    )
+    assert qs.save_news("eastmoney", "600519", df) == 2
+    # Re-saving the same batch inserts nothing
+    assert qs.save_news("eastmoney", "600519", df) == 0
+    # Same title under a different symbol is a different item
+    assert qs.save_news("eastmoney", "000858", df.head(1)) == 1
+    # A batch mixing duplicates and new items only inserts the new ones
+    df2 = pd.DataFrame(
+        [
+            {"title": "新闻A", "content": "内容A", "url": "http://a", "published_at": "2026-03-01 10:00:00"},
+            {"title": "新闻C", "content": "内容C", "url": "http://c", "published_at": "2026-03-02 09:00:00"},
+        ]
+    )
+    assert qs.save_news("eastmoney", "600519", df2) == 1
