@@ -37,6 +37,12 @@ def main():
     parser.add_argument("--name", help="Holding display name")
     parser.add_argument("--shares", type=float, help="Holding quantity")
     parser.add_argument("--cost-price", type=float, help="Average cost per unit")
+    parser.add_argument(
+        "--backfill-days",
+        type=int,
+        default=None,
+        help="sync: fetch this many days of history instead of incremental updates",
+    )
     args = parser.parse_args()
 
     if args.command == "set-holding":
@@ -77,7 +83,7 @@ def main():
     if args.command == "init-db":
         _cmd_init_db(config)
     elif args.command == "sync":
-        _cmd_sync(config)
+        _cmd_sync(config, args)
     elif args.command == "report":
         _cmd_report(config, args.type)
     elif args.command == "set-holding":
@@ -104,14 +110,14 @@ def _cmd_init_db(config):
     print(f"Database initialized at: {config.database.path}")
 
 
-def _cmd_sync(config):
+def _cmd_sync(config, args):
     from src.data.sync import DataSyncService
     from src.storage.database import Database
 
     db = Database(config.database)
     db.create_tables()
     sync = DataSyncService(config, db)
-    sync.sync_all()
+    sync.sync_all(backfill_days=args.backfill_days)
 
 
 def _cmd_report(config, report_type: str):

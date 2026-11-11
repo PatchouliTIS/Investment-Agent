@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 
 from loguru import logger
@@ -32,6 +33,9 @@ class AnalysisWindow:
 
 DAILY_WINDOW = AnalysisWindow(365, 20, 300, 7, 180)
 WEEKLY_WINDOW = AnalysisWindow(730, 60, 365, 30, 365)
+
+# Analyst calls are network-bound LLM requests, so they run concurrently.
+MAX_ANALYSIS_WORKERS = 5
 
 
 class ReportGenerator:
@@ -64,46 +68,41 @@ class ReportGenerator:
         results_by_symbol = {}
         all_results = []
 
+        tasks: list[tuple[str, str, object, dict]] = []
         for symbol in self.config.watchlist.a_shares:
-            tasks = [
+            tasks += [
                 (
+                    symbol,
+                    "a_share",
                     self.analysts[0],
                     {
                         "history_days": window.fundamental_history_days,
                         "recent_trading_days": window.fundamental_recent_trading_days,
                     },
                 ),
-                (self.analysts[1], {"history_days": window.technical_history_days}),
-                (self.analysts[2], {"news_days": window.sentiment_days}),
+                (symbol, "a_share", self.analysts[1], {"history_days": window.technical_history_days}),
+                (symbol, "a_share", self.analysts[2], {"news_days": window.sentiment_days}),
             ]
-            self._analyze_symbol(results_by_symbol, all_results, symbol, "a_share", tasks)
-
         for symbol in self.config.watchlist.hk_stocks:
-            self._analyze_symbol(
-                results_by_symbol,
-                all_results,
-                symbol,
-                "hk",
-                [(self.analysts[1], {"history_days": window.technical_history_days})],
+            tasks.append(
+                (symbol, "hk", self.analysts[1], {"history_days": window.technical_history_days})
             )
-
         for symbol in self.config.watchlist.us_stocks:
-            self._analyze_symbol(
-                results_by_symbol,
-                all_results,
-                symbol,
-                "us",
-                [(self.analysts[1], {"history_days": window.technical_history_days})],
+            tasks.append(
+                (symbol, "us", self.analysts[1], {"history_days": window.technical_history_days})
+            )
+        for symbol in self.config.watchlist.funds:
+            tasks.append(
+                (symbol, "fund", self.fund_analyst, {"history_days": window.fund_history_days})
             )
 
-        for symbol in self.config.watchlist.funds:
-            self._analyze_symbol(
-                results_by_symbol,
-                all_results,
-                symbol,
-                "fund",
-                [(self.fund_analyst, {"history_days": window.fund_history_days})],
-            )
+        for symbol, market, _, _ in tasks:
+            results_by_symbol.setdefault(symbol, {"market": market, "analyses": {}})
+        for (symbol, _, analyst, _), result in zip(tasks, self._run_analyses(tasks)):
+            if result is None:
+                continue
+            results_by_symbol[symbol]["analyses"][analyst.name] = self._result_payload(result)
+            all_results.append(result)
 
         valuation = self.queries.get_portfolio_valuation()
         portfolio_advice = self.portfolio_advisor.analyze_portfolio(all_results, valuation)
@@ -125,6 +124,28 @@ class ReportGenerator:
         return report
 
     @staticmethod
+    def _run_analyses(
+        tasks: list[tuple[str, str, object, dict]],
+    ) -> list[AnalysisResult | None]:
+        """Run analyst tasks concurrently, preserving input order in the output."""
+        results: list[AnalysisResult | None] = [None] * len(tasks)
+        if not tasks:
+            return results
+        with ThreadPoolExecutor(max_workers=min(MAX_ANALYSIS_WORKERS, len(tasks))) as pool:
+            futures = {
+                pool.submit(analyst.analyze, symbol, market, **kwargs): index
+                for index, (symbol, market, analyst, kwargs) in enumerate(tasks)
+            }
+            for future in as_completed(futures):
+                index = futures[future]
+                symbol, market, analyst, _ = tasks[index]
+                try:
+                    results[index] = future.result()
+                except Exception as error:  # noqa: BLE001
+                    logger.error(f"Analyst {analyst.name} failed for {market}/{symbol}: {error}")
+        return results
+
+    @staticmethod
     def _result_payload(result: AnalysisResult) -> dict:
         return {
             "summary": result.summary,
@@ -132,20 +153,3 @@ class ReportGenerator:
             "confidence": result.confidence,
             "details": result.details,
         }
-
-    def _analyze_symbol(
-        self,
-        results_by_symbol: dict,
-        all_results: list[AnalysisResult],
-        symbol: str,
-        market: str,
-        tasks: list[tuple[object, dict]],
-    ) -> None:
-        results_by_symbol[symbol] = {"market": market, "analyses": {}}
-        for analyst, kwargs in tasks:
-            try:
-                result = analyst.analyze(symbol, market, **kwargs)
-                results_by_symbol[symbol]["analyses"][analyst.name] = self._result_payload(result)
-                all_results.append(result)
-            except Exception as error:  # noqa: BLE001
-                logger.error(f"Analyst {analyst.name} failed for {market}/{symbol}: {error}")

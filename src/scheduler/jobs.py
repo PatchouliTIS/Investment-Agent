@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pandas as pd
 from loguru import logger
@@ -76,27 +76,60 @@ def job_weekly_report(config: AppConfig, db: Database):
 
 
 def job_check_alerts(config: AppConfig, db: Database):
-    """Check for price/volume anomalies using real-time quotes and send alerts."""
+    """Send fresh price/volume/stop-loss alerts, each once per symbol per day."""
     if not is_trading_day():
         return
 
+    queries = QueryService(db)
+    alerts = _market_alerts(config, queries) + _stop_loss_alerts(config, queries)
+
+    today = shanghai_today()
+    fresh_alerts = [
+        alert
+        for alert in alerts
+        if queries.save_alert_if_new(
+            alert["symbol"], alert["alert_type"], today, alert["message"]
+        )
+    ]
+    if not fresh_alerts:
+        logger.info("No alerts triggered." if not alerts else "All triggered alerts already sent today.")
+        return
+
+    logger.warning(f"Found {len(fresh_alerts)} new alerts!")
+    problem = config.email.credential_problem()
+    if problem:
+        logger.warning(f"Email delivery unavailable ({problem}); alerts not sent.")
+        return
+    alert_data = {
+        "date": today.isoformat(),
+        "type": "alert",
+        "alerts": fresh_alerts,
+    }
+    EmailSender(config.email).send_alert(alert_data)
+
+
+def _market_alerts(config: AppConfig, queries: QueryService) -> list[dict]:
+    """Intraday price-change and volume-spike alerts for watched A-shares."""
     symbols = config.watchlist.a_shares
     if not symbols:
-        return
+        return []
 
     logger.info("Checking alerts...")
+    client = AkshareDataClient(
+        use_env_proxy=config.akshare.use_env_proxy,
+        max_retries=config.akshare.max_retries,
+        retry_delay_seconds=config.akshare.retry_delay_seconds,
+    )
     try:
-        spot = AkshareDataClient().fetch_latest(symbols)
+        spot = client.fetch_latest(symbols)
     except Exception as e:
         logger.error(f"Failed to fetch real-time quotes: {e}")
-        return
+        return []
     if spot.empty:
         logger.warning("No real-time quotes available, skipping alert check.")
-        return
+        return []
 
-    queries = QueryService(db)
     alerts = []
-
     for symbol in symbols:
         rows = spot[spot["symbol"] == symbol]
         if rows.empty:
@@ -116,7 +149,7 @@ def job_check_alerts(config: AppConfig, db: Database):
             })
 
         # Volume spike alert: real-time volume vs 20-day average from daily bars
-        end = date.today()
+        end = shanghai_today()
         start = end - timedelta(days=45)
         df = queries.get_quotes("a_share", symbol, start, end)
         if len(df) >= 20:
@@ -131,16 +164,24 @@ def job_check_alerts(config: AppConfig, db: Database):
                         "message": f"实时成交量为20日均量的 {volume_ratio:.1f} 倍，超过阈值 {config.alerts.volume_spike_threshold}x",
                         "current_value": f"成交量 {volume:,.0f}",
                     })
+    return alerts
 
-    if alerts:
-        logger.warning(f"Found {len(alerts)} alerts!")
-        alert_data = {
-            "date": shanghai_today().isoformat(),
-            "type": "alert",
-            "alerts": alerts,
-        }
-        if config.email.sender and config.email.recipients:
-            sender = EmailSender(config.email)
-            sender.send_alert(alert_data)
-    else:
-        logger.info("No alerts triggered.")
+
+def _stop_loss_alerts(config: AppConfig, queries: QueryService) -> list[dict]:
+    """Flag holdings whose unrealized loss breaches the configured stop-loss line."""
+    threshold = config.alerts.stop_loss_threshold
+    alerts = []
+    for holding in queries.get_portfolio_valuation()["holdings"]:
+        pnl_pct = holding.get("unrealized_pnl_pct")
+        if pnl_pct is None or pnl_pct > threshold:
+            continue
+        alerts.append({
+            "symbol": holding["symbol"],
+            "alert_type": "止损警告",
+            "message": (
+                f"{holding['name']} 浮动盈亏 {pnl_pct:.2f}%，"
+                f"已跌破止损线 {threshold}%"
+            ),
+            "current_value": f"{holding['latest_price']:.4f} {holding['currency']}",
+        })
+    return alerts

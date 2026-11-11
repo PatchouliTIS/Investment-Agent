@@ -14,7 +14,7 @@ AI-powered personal investment decision support agent that periodically scrapes 
 |-------|------|---------|
 | Data | AKShare | A-shares, funds/ETFs, HK/US stocks, news |
 | Storage | SQLite + SQLAlchemy | 7 tables, upsert dedup |
-| AI | Messages API (wawapii.com) | 3 analyst agents + portfolio advisor |
+| AI | litellm (Anthropic-compatible endpoint) | 3 analyst agents + fund analyst + portfolio advisor |
 | Notify | SMTP + Jinja2 HTML | Daily brief, weekly deep, alerts |
 | Schedule | APScheduler 3.x | In-process cron jobs |
 
@@ -23,8 +23,8 @@ AI-powered personal investment decision support agent that periodically scrapes 
 ```
 src/
 ├── config.py                 # Pydantic config with ${ENV_VAR} support
-├── main.py                   # CLI: init-db / sync / report / set-holding / delete-holding / portfolio / test-email / run
-├── data/                     # Data fetchers (a_share, fund, hk_us, news, sync)
+├── main.py                   # CLI: init-db / sync / report / set-holding / delete-holding / portfolio / test-email / cache-stats / clear-cache / run
+├── data/                     # AKShare client (multi-provider fallback) + incremental sync service
 ├── storage/                  # ORM models, DB management, query service
 ├── analysis/                 # LLM client, stock/fund analysts, portfolio advisor, report generator
 ├── notify/                   # Email sender + 3 HTML templates
@@ -107,7 +107,7 @@ Daily and weekly reports are generated through independent analysis windows. The
 | Data Sync | `0 18 * * 1-5` | Weekdays 18:00 after market close |
 | Daily Brief | `30 19 * * 1-5` | Weekdays 19:30 |
 | Weekly Deep | `0 10 * * 6` | Saturday 10:00 |
-| Alert Check | `30 18 * * 1-5` | End-of-day price/volume anomalies, deduplicated by symbol/rule/date |
+| Alert Check | `30 18 * * 1-5` | End-of-day price/volume anomalies and holding stop-loss breaches, deduplicated by symbol/rule/date |
 
 ## Data Synchronization
 
@@ -118,6 +118,10 @@ Daily and weekly reports are generated through independent analysis windows. The
 - A-share financial indicators, individual-stock fund flow, and company news
 
 Each symbol and enrichment task is isolated: a provider failure is logged without aborting the rest of the watchlist. The report and end-of-day alert commands use the persisted data, so run `sync` successfully before generating the first report.
+
+A-share history tries EastMoney, Sina, Tencent, then Tonghuashun's public JSONP endpoint as a last resort. Tonghuashun values use provider-native adjustment and volume units, so validate them before mixing sources. Tencent may omit volume; the normalized field remains null rather than being fabricated.
+
+Pass `--backfill-days N` to `sync` to force every fetch window to start N days ago instead of at the last stored row — useful for building the multi-year history the weekly report's analysis window expects.
 
 ## Development
 

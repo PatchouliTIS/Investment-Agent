@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import DatabaseConfig
@@ -21,8 +21,17 @@ class Database:
         self.engine = create_engine(
             f"sqlite:///{db_path}",
             echo=False,
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": 30},
         )
+
+        # WAL + busy timeout let scheduled jobs overlap without "database is locked".
+        @event.listens_for(self.engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.close()
+
         self._SessionFactory = sessionmaker(bind=self.engine)
 
     def create_tables(self):

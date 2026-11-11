@@ -23,17 +23,19 @@ watchlist:
   us_stocks: []
 
 llm:
+  provider: "anthropic"          # litellm provider；anthropic 会在 base_url 后自动补 /v1/messages
   model: "claude-opus-4-6"           # 日常分析模型
   api_key: "${AICODING_API_KEY}"     # 存储在 .env 中
-  base_url: "https://wawapii.com/v1/messages"
+  base_url: "https://wawapii.com"
   temperature: 0.3
   max_tokens: 4096
 
 # 深度分析用更强模型 (可选，使用同一API)
 llm_deep:
+  provider: "anthropic"
   model: "claude-opus-4-6"
   api_key: "${AICODING_API_KEY}"
-  base_url: "https://wawapii.com/v1/messages"
+  base_url: "https://wawapii.com"
   temperature: 0.2
   max_tokens: 8192
 
@@ -48,22 +50,23 @@ email:
 
 schedule:
   data_sync_cron: "0 18 * * 1-5"       # 周一至周五 18:00 收盘后同步
+  alert_check_cron: "30 18 * * 1-5"     # 周一至周五 18:30 价格/量能/止损告警
   daily_report_cron: "30 19 * * 1-5"    # 周一至周五 19:30 发送日报
   weekly_report_cron: "0 10 * * 6"      # 周六 10:00 发送周报
 
 alerts:
   price_change_threshold: 5.0           # 单日涨跌幅超过5%触发告警
   volume_spike_threshold: 3.0           # 成交量超过20日均量3倍触发
-  stop_loss_threshold: -15.0            # 止损线：累计跌幅超-15%触发
+  stop_loss_threshold: -15.0            # 止损线：持仓浮亏超-15%触发
 
 database:
   path: "data/investment.db"
 
 # 个人财务画像（用于组合顾问生成仓位/定投建议）
-profile:
+investor_profile:
   monthly_income: 40000      # 税前月收入（元）
-  available_cash: 200000     # 可支配资金（元）
+  investable_cash: 200000    # 可投资现金（元）
   fund_assets: 300000        # 基金资产（元）
-  risk_preference: "中等"    # 风险偏好：低/中等/高
+  risk_preference: "稳健"    # 保守 / 稳健 / 进取
 
 log_level: "INFO"

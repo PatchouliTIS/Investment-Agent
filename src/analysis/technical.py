@@ -121,15 +121,11 @@ class TechnicalAnalyst(BaseAnalyst):
         if vol_ma20 > 0:
             indicators["volume_ratio"] = round(float(volume.iloc[-1] / vol_ma20), 2)
 
-        # Recent performance
-        if len(df) >= 5:
-            indicators["5d_change_pct"] = round(
-                float((close.iloc[-1] / close.iloc[-5] - 1) * 100), 2
-            )
-        if len(df) >= 20:
-            indicators["20d_change_pct"] = round(
-                float((close.iloc[-1] / close.iloc[-20] - 1) * 100), 2
-            )
+        # Recent performance (N-day return spans N trading intervals)
+        if len(df) >= 6:
+            indicators["5d_change_pct"] = round(float(close.pct_change(5).iloc[-1] * 100), 2)
+        if len(df) >= 21:
+            indicators["20d_change_pct"] = round(float(close.pct_change(20).iloc[-1] * 100), 2)
 
         # 52-week high/low (approx 250 trading days)
         lookback = min(len(df), 250)

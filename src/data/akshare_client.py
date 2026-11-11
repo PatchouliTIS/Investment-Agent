@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Iterator
@@ -10,6 +11,7 @@ from datetime import date
 from typing import Any
 
 import pandas as pd
+import requests
 from loguru import logger
 
 from src.utils.chinese_calendar import shanghai_today
@@ -69,7 +71,7 @@ class AkshareDataClient:
         self._eastmoney_kline_available = True
 
     def fetch_a_share_quotes(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        """Fetch forward-adjusted A-share daily quotes with provider fallback."""
+        """Fetch A-share daily quotes with provider fallback."""
         if self._eastmoney_kline_available:
             try:
                 raw = self._call(
@@ -92,16 +94,17 @@ class AkshareDataClient:
                 raw = self._fetch_a_share_quotes_fallback(symbol, start, end)
         else:
             raw = self._fetch_a_share_quotes_fallback(symbol, start, end)
-        return self._normalize_quotes(raw)
+        quotes = self._normalize_quotes(raw)
+        return quotes[(quotes["date"] >= start) & (quotes["date"] <= end)]
 
     def _fetch_a_share_quotes_fallback(
         self, symbol: str, start: date, end: date
     ) -> pd.DataFrame:
-        """Fetch A-share quotes from Sina, then Tencent if Sina is unavailable."""
+        """Fetch A-share quotes from Sina, Tencent, then Tonghuashun."""
         if self._is_bse(symbol):
             raise BeijingExchangeUnsupportedError(
                 f"{symbol} is listed on the Beijing Stock Exchange, which only "
-                "Eastmoney serves; Sina and Tencent have no data for it."
+                "Eastmoney serves; the configured fallback sources have no verified data for it."
             )
         provider_symbol = self._a_share_provider_symbol(symbol)
         try:
@@ -118,6 +121,7 @@ class AkshareDataClient:
                 f"Sina A-share quotes failed for {symbol} ({error}); "
                 "falling back to Tencent."
             )
+        try:
             return self._call(
                 "a_share_quotes_tencent",
                 self.api.stock_zh_a_hist_tx,
@@ -126,6 +130,53 @@ class AkshareDataClient:
                 end_date=end.strftime("%Y%m%d"),
                 adjust="qfq",
             )
+        except Exception as error:  # noqa: BLE001
+            logger.warning(
+                f"Tencent A-share quotes failed for {symbol} ({error}); "
+                "falling back to Tonghuashun."
+            )
+            return self._call(
+                "a_share_quotes_ths",
+                self._fetch_ths_daily,
+                symbol=symbol,
+            )
+
+    def _fetch_ths_daily(self, symbol: str) -> pd.DataFrame:
+        """Fetch provider-native daily bars from Tonghuashun's public JSONP endpoint."""
+        response = requests.get(
+            f"https://d.10jqka.com.cn/v6/line/hs_{symbol}/01/last1800.js",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Referer": f"https://stockpage.10jqka.com.cn/{symbol}/",
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        text = response.text
+        left, right = text.find("{"), text.rfind("}")
+        if left < 0 or right <= left:
+            raise ValueError("Tonghuashun returned no recognizable JSON payload")
+        payload = json.loads(text[left : right + 1])
+        raw_rows = payload.get("data")
+        if not isinstance(raw_rows, str):
+            raise ValueError("Tonghuashun returned no daily-row payload")
+
+        rows = []
+        for raw_row in raw_rows.split(";"):
+            if not raw_row:
+                continue
+            values = raw_row.split(",")
+            if len(values) < 7:
+                raise ValueError("Tonghuashun returned a malformed daily row")
+            rows.append(values[:7])
+        return pd.DataFrame(
+            rows,
+            columns=["date", "open", "high", "low", "close", "volume", "amount"],
+        )
 
     def fetch_hk_quotes(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """Fetch Hong Kong stock daily quotes with an alternate source fallback."""
@@ -205,7 +256,7 @@ class AkshareDataClient:
 
     def fetch_fund_nav(self, fund_code: str, start: date, end: date) -> pd.DataFrame:
         """Fetch open-fund or ETF net-asset-value history."""
-        if self._is_etf(fund_code):
+        if self.is_etf(fund_code):
             if self._eastmoney_kline_available:
                 try:
                     raw = self._call(
@@ -223,11 +274,11 @@ class AkshareDataClient:
                         self._eastmoney_kline_available = False
                     logger.warning(
                         f"Eastmoney ETF quotes failed for {fund_code} ({error}); "
-                        "falling back to Sina."
+                        "falling back to Tencent."
                     )
-                    raw = self._fetch_etf_nav_fallback(fund_code)
+                    raw = self._fetch_etf_nav_fallback(fund_code, start, end)
             else:
-                raw = self._fetch_etf_nav_fallback(fund_code)
+                raw = self._fetch_etf_nav_fallback(fund_code, start, end)
             quotes = self._normalize_quotes(raw)
             quotes = quotes[(quotes["date"] >= start) & (quotes["date"] <= end)]
             return pd.DataFrame(
@@ -393,13 +444,31 @@ class AkshareDataClient:
                 os.environ.pop(name, None)
             os.environ.update(saved)
 
-    def _fetch_etf_nav_fallback(self, fund_code: str) -> pd.DataFrame:
-        """Fetch exchange-traded fund history from Sina."""
-        return self._call(
-            "etf_nav_sina",
-            self.api.fund_etf_hist_sina,
-            symbol=self._fund_provider_symbol(fund_code),
-        )
+    def _fetch_etf_nav_fallback(self, fund_code: str, start: date, end: date) -> pd.DataFrame:
+        """Fetch ETF history, preferring Tencent's forward-adjusted series.
+
+        Sina's ETF history is unadjusted: fund share splits show up as
+        artificial price cliffs that corrupt every return/drawdown metric.
+        """
+        try:
+            return self._call(
+                "etf_nav_tencent",
+                self.api.stock_zh_a_hist_tx,
+                symbol=self._fund_provider_symbol(fund_code),
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+                adjust="qfq",
+            )
+        except Exception as error:  # noqa: BLE001
+            logger.warning(
+                f"Tencent ETF quotes failed for {fund_code} ({error}); "
+                "falling back to Sina (unadjusted)."
+            )
+            return self._call(
+                "etf_nav_sina",
+                self.api.fund_etf_hist_sina,
+                symbol=self._fund_provider_symbol(fund_code),
+            )
 
     @classmethod
     def _normalize_quotes(cls, raw: pd.DataFrame) -> pd.DataFrame:
@@ -465,7 +534,8 @@ class AkshareDataClient:
         ).dropna(subset=["date"])
 
     @staticmethod
-    def _is_etf(fund_code: str) -> bool:
+    def is_etf(fund_code: str) -> bool:
+        """Identify exchange-traded fund codes across both exchanges."""
         return fund_code.startswith(("15", "16", "50", "51", "52", "56", "58", "59"))
 
     @classmethod
